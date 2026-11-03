@@ -16,3 +16,8 @@ tests/audio/
 
 # local run logs
 out/
+
+# packaging
+build/
+dist/
+*.spec.bak
