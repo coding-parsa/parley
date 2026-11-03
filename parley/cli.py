@@ -268,6 +268,12 @@ def cmd_simulate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_gui(args: argparse.Namespace) -> int:
+    from .gui import main as gui_main
+
+    return gui_main()
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     from .server import serve
 
@@ -323,6 +329,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     devices = sub.add_parser("devices", help="list audio endpoints")
     devices.set_defaults(func=cmd_devices)
+
+    gui = sub.add_parser("gui", help="open the desktop app")
+    gui.set_defaults(func=cmd_gui)
 
     models = sub.add_parser("models", help="show profiles and their VRAM cost")
     models.set_defaults(func=cmd_models)

@@ -64,28 +64,36 @@ parley simulate tests/audio/en_meeting_long.wav --from en --to de --no-speak
 
 ## Install
 
+### The desktop app (Windows)
+
+Download `parley.exe` from the [releases page](https://github.com/coding-parsa/parley/releases),
+run it, and press **Start**. The app offers to download the models (~3 GB) the first
+time it opens. That is the whole setup — no terminal, no Python.
+
+Models are stored in `%LOCALAPPDATA%\parley\models` (override with `PARLEY_MODELS`).
+Settings are stored in `%APPDATA%\parley\settings.json`.
+
+### From source
+
 ```bash
-git clone <your-fork> parley && cd parley
+git clone https://github.com/coding-parsa/parley && cd parley
 python -m venv .venv && .venv/Scripts/activate      # Windows; source .venv/bin/activate elsewhere
 pip install -e .
 
 python scripts/fetch_models.py --stt turbo --mt 600m --voices de en
-parley doctor
+parley gui || parley doctor
 ```
 
-`doctor` tells you what is missing before you find out mid-meeting.
+`parley.cmd <command>` runs the CLI from the checkout's venv without activating it.
 
 ## Use
 
 ```bash
-# translate a file, report every stage's timing
-parley file tests/audio/en_meeting_01.wav --from en --to de --out out/
-
-# live, from the microphone, spoken into your speakers
-parley run --from en --to de
-
-# live captions in a browser console (lag, VRAM, refusals)
-parley serve --from en --to de
+parley gui                                     # the app
+parley run --from en --to de                   # live, spoken out loud
+parley file meeting.wav --from en --to de --out out/   # a recording, with timings
+parley serve --from en --to de                 # caption console in the browser
+parley meet --a en --b de --mic "Mic" --cable "CABLE Input"   # bidirectional meeting
 ```
 
 ### In a real meeting

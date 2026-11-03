@@ -8,11 +8,30 @@ pair at a time**, bounded by a VRAM ceiling. See :mod:`parley.vram`.
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-MODELS_DIR = Path(os.environ.get("PARLEY_MODELS", ROOT / "models"))
+
+
+def default_models_dir() -> Path:
+    """Where the models live.
+
+    Override with ``PARLEY_MODELS``. When the app is frozen into an .exe the
+    models cannot sit next to the binary (13 GB), so they default to
+    ``%LOCALAPPDATA%\\parley\\models``; a source checkout keeps them in ``./models``.
+    """
+    env = os.environ.get("PARLEY_MODELS")
+    if env:
+        return Path(env)
+    if getattr(sys, "frozen", False):
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home())
+        return Path(base) / "parley" / "models"
+    return ROOT / "models"
+
+
+MODELS_DIR = default_models_dir()
 
 # --- Language codes -------------------------------------------------------------
 # parley speaks Whisper codes on one side (2-letter) and NLLB codes on the other
