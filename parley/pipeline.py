@@ -99,6 +99,7 @@ class Interpreter:
         self._utt_pieces: list[str] = []
         self._utt_lang = ""
         self._first_audio_wall: dict[int, float] = {}
+        self._requested_profile = ""
 
     # -- plumbing ------------------------------------------------------------
     def _log(self, message: str) -> None:
@@ -108,9 +109,34 @@ class Interpreter:
         self.on_event(event)
 
     # -- model lifecycle -----------------------------------------------------
+    FALLBACKS = {"quality": ("quality", "balanced", "fast"),
+                 "balanced": ("balanced", "fast"),
+                 "fast": ("fast",)}
+
     def warm(self) -> None:
-        """Load the pair. With shared :class:`Engines` the STT/MT are already resident
-        (that is how bidirectional mode stays inside one pair's worth of VRAM)."""
+        """Load the pair, stepping down a profile if the card cannot fit it.
+
+        A 6 GB laptop shares its VRAM with the browser and the desktop. Refusing to
+        start because a tab is holding 2 GB is technically correct and practically
+        useless, so parley tries the next smaller profile and says so.
+        """
+        last_error: Exception | None = None
+        requested = self.cfg.profile
+        self._requested_profile = requested
+        for name in self.FALLBACKS.get(requested, ("balanced", "fast")):
+            try:
+                self._load_profile(name)
+                if name != requested:
+                    self._emit({"type": "fallback", "from": requested, "to": name})
+                return
+            except VramError as exc:
+                last_error = exc
+                self._emit({"type": "log", "message": f"{name} does not fit: {exc}"})
+                continue
+        raise SystemExit(str(last_error) if last_error else "could not load any profile")
+
+    def _load_profile(self, name: str) -> None:
+        self.cfg.profile = name
         prof = self.cfg.prof
         if self.engines is not None and self.engines.warm:
             self.stt = self.engines.stt
@@ -157,6 +183,18 @@ class Interpreter:
             self.budget.release(name)
 
     # -- one chunk: STT → gate → commit --------------------------------------
+    def _detect(self, audio: np.ndarray) -> tuple[str, float]:
+        """Language detection, except where it cannot be trusted.
+
+        Whisper's language ID needs roughly a second of speech; below that it guesses,
+        and a confident wrong guess makes the gate refuse the user's own sentence. For
+        very short clips the configured source language is the better prior.
+        """
+        assert self.stt is not None
+        if len(audio) / SR < 0.9:
+            return self.cfg.source, 1.0
+        return self.stt.detect(audio)
+
     def _decode(self, audio: np.ndarray, final: bool) -> tuple[str, str]:
         """Run STT + gate + commit; return (full transcript, newly committed text).
 
@@ -165,7 +203,7 @@ class Interpreter:
         waits.
         """
         assert self.stt is not None
-        lang, prob = self.stt.detect(audio)
+        lang, prob = self._detect(audio)
         ok, why = self.gate.check(lang, prob)
         if not ok:
             self._emit({"type": "rejected", "language": lang, "prob": round(prob, 2), "reason": why})
@@ -394,7 +432,7 @@ class Interpreter:
         transcripts: list[tuple | None] = []
         assert self.stt is not None
         for utt in utterances:
-            lang, prob = self.stt.detect(utt.audio)
+            lang, prob = self._detect(utt.audio)
             ok, why = self.gate.check(lang, prob)
             if not ok:
                 self._emit({"type": "rejected", "language": lang, "prob": round(prob, 2), "reason": why})

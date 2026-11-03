@@ -37,7 +37,8 @@ a = Analysis(                                    # noqa: F821
     hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],
-    excludes=["torch", "transformers", "matplotlib", "scipy.sparse", "pandas", "PyQt5", "PySide6"],
+    excludes=["torch", "transformers", "matplotlib", "pandas", "PyQt5", "PySide6", "PySide2",
+              "IPython", "notebook", "tensorflow"],
     noarchive=False,
 )
 pyz = PYZ(a.pure)                                # noqa: F821

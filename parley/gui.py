@@ -795,6 +795,11 @@ class ParleyApp(tk.Tk):
                 self.stat_labels["vram"].configure(text=f"{vram['resident_mb']} MB")
         elif kind == "listening":
             self._set_state("listening", OK)
+        elif kind == "fallback":
+            self._show_notice(f"{event.get('from')} did not fit in the card's free memory — "
+                              f"running {event.get('to')} instead.", action=False)
+        elif kind == "log":
+            self.toolbar_hint.configure(text=event.get("message", "")[:120])
         elif kind == "segment":
             self.add_segment(event)
         elif kind == "partial_commit":
