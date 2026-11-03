@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "parley-live"
+version = "0.3.0"
+description = "Offline live speech-to-speech interpretation that fits in 6 GB of VRAM"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Parsa", email = "146424325+coding-parsa@users.noreply.github.com" }]
+keywords = ["translation", "speech", "whisper", "nllb", "piper", "realtime", "offline"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
+dependencies = [
+    "faster-whisper>=1.1",
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "sounddevice>=0.5",
+    "soundfile>=0.12",
+    "huggingface_hub>=0.24",
+    "sentencepiece>=0.2",
+    "piper-tts>=1.2",
+    "sacrebleu>=2.4",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "rich>=13",
+]
+
+[project.scripts]
+parley = "parley.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["parley*"]
+
+[tool.setuptools.package-data]
+parley = ["web/*.html", "web/*.css", "web/*.js"]

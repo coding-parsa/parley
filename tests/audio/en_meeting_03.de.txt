@@ -1,0 +1,1 @@
+Ich denke, wir sollten die Migration verschieben, bis die neue Datenbank stabil ist.

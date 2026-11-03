@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>parley — live interpretation</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: #0b0d12; color: #e7ecf3;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; align-items: center; gap: 16px; padding: 14px 20px;
+    border-bottom: 1px solid #1c2230; background: #0e1218; position: sticky; top: 0;
+  }
+  h1 { font-size: 15px; margin: 0; letter-spacing: .12em; text-transform: uppercase; color: #9fb0c7; font-weight: 600; }
+  .pill { font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid #232b3a; color: #9fb0c7; }
+  .pill.live { border-color: #1f7a4d; color: #6ee7a8; }
+  .spacer { flex: 1; }
+  button {
+    font: inherit; font-size: 13px; padding: 7px 14px; border-radius: 8px; cursor: pointer;
+    background: #16202c; color: #dbe6f3; border: 1px solid #263143;
+  }
+  button:hover { background: #1c2836; }
+  main { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: #151b25; }
+  section { background: #0b0d12; padding: 22px; overflow-y: auto; max-height: calc(100vh - 118px); }
+  h2 { font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: #64748b; margin: 0 0 14px; }
+  .line { margin-bottom: 18px; }
+  .src { font-size: 17px; line-height: 1.45; color: #93a4ba; }
+  .tgt { font-size: 21px; line-height: 1.45; color: #f2f6fb; margin-top: 4px; }
+  .meta { font-size: 11px; color: #4b5b70; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .rejected { font-size: 13px; color: #f0b36b; }
+  footer {
+    display: flex; gap: 22px; padding: 10px 20px; border-top: 1px solid #1c2230;
+    font-size: 12px; color: #7c8ba1; background: #0e1218; font-variant-numeric: tabular-nums;
+  }
+  footer b { color: #cfe0f2; font-weight: 600; }
+</style>
+</head>
+<body>
+<header>
+  <h1>parley</h1>
+  <span class="pill" id="state">connecting…</span>
+  <span class="pill" id="config">—</span>
+  <span class="spacer"></span>
+  <button id="toggle">Start</button>
+</header>
+<main>
+  <section>
+    <h2 id="src-head">source</h2>
+    <div id="src"></div>
+  </section>
+  <section>
+    <h2 id="tgt-head">translation</h2>
+    <div id="tgt"></div>
+  </section>
+</main>
+<footer>
+  <span>lag p50 <b id="lag">–</b></span>
+  <span>stt <b id="stt">–</b></span>
+  <span>mt <b id="mt">–</b></span>
+  <span>vram <b id="vram">–</b></span>
+  <span>dropped <b id="dropped">0</b></span>
+</footer>
+<script>
+const $ = (id) => document.getElementById(id);
+let running = false;
+
+function addLine(src, tgt, meta, rejected) {
+  const left = document.createElement("div");
+  left.className = "line";
+  left.innerHTML = rejected
+    ? `<div class="rejected">⚠ ${src}</div><div class="meta">${meta}</div>`
+    : `<div class="src">${src}</div><div class="meta">${meta}</div>`;
+  $("src").prepend(left);
+  if (!rejected) {
+    const right = document.createElement("div");
+    right.className = "line";
+    right.innerHTML = `<div class="tgt">${tgt}</div>`;
+    $("tgt").prepend(right);
+  }
+}
+
+function connect() {
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onmessage = (msg) => {
+    const e = JSON.parse(msg.data);
+    if (e.type === "hello") {
+      $("config").textContent = e.config;
+      (e.history || []).forEach(render);
+    } else render(e);
+  };
+  ws.onclose = () => setTimeout(connect, 1200);
+}
+
+function render(e) {
+  if (e.type === "segment") {
+    if (e.dropped) {
+      addLine(e.dropped, "", `${e.src_lang} ${Math.round((e.lang_prob||0)*100)}%`, true);
+    } else {
+      addLine(e.source_text, e.translated_text,
+        `${e.audio_s.toFixed(1)}s speech · stt ${e.stt_s.toFixed(2)}s · mt ${e.mt_s.toFixed(2)}s · lag ${e.lag_s.toFixed(2)}s`);
+    }
+  } else if (e.type === "rejected") {
+    addLine(e.reason, "", `${e.language} ${Math.round(e.prob*100)}%`, true);
+  } else if (e.type === "caption") {
+    // clause-level caption; the segment line already carries the pair
+  } else if (e.type === "ready") {
+    $("state").textContent = "live"; $("state").className = "pill live";
+    $("vram").textContent = `${e.vram.resident_mb} MB`;
+  } else if (e.type === "error") {
+    $("state").textContent = "error"; $("state").className = "pill";
+    addLine(e.message, "", e.where || "", true);
+  } else if (e.type === "stopped") {
+    $("state").textContent = "stopped"; $("state").className = "pill";
+    running = false; $("toggle").textContent = "Start";
+    updateStats(e.stats);
+  }
+}
+
+function updateStats(stats) {
+  if (!stats) return;
+  const f = (v) => (v === undefined || v === null || v === 0) ? "–" : Number(v).toFixed(2) + "s";
+  $("lag").textContent = f(stats.lag_p50);
+  $("stt").textContent = f(stats.stt_p50);
+  $("mt").textContent = f(stats.mt_p50);
+  $("dropped").textContent = stats.dropped ?? 0;
+  if (stats.vram) $("vram").textContent = `${stats.vram.own_peak_mb} MB`;
+}
+
+$("toggle").onclick = async () => {
+  const action = running ? "stop" : "start";
+  await fetch(`/api/${action}`, { method: "POST" });
+  running = !running;
+  $("toggle").textContent = running ? "Stop" : "Start";
+  $("state").textContent = running ? "starting…" : "stopping…";
+  $("state").className = running ? "pill live" : "pill";
+};
+
+setInterval(async () => {
+  try { updateStats(await (await fetch("/api/status")).json()); } catch (_) {}
+}, 4000);
+
+connect();
+</script>
+</body>
+</html>

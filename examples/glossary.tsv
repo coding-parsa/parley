@@ -1,0 +1,8 @@
+# parley glossary — tab-separated: source term <TAB> approved target <TAB> bad variants (;)
+# Terms are matched case-insensitively in the source transcript.
+# Approved terms are checked for presence in the translation; variants are replaced.
+deployment	Bereitstellung	das Geld;der Einsatz;die Einsatz
+budget	Budget	der Budget;das Budgets
+financial report	Finanzbericht	der Geldbericht;das Geld
+release	Veröffentlichung	die Freigabe;das Release
+migration	Migration	der Migration
