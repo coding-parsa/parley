@@ -19,15 +19,23 @@ parley bench tests/audio --from en --to de --profile quality
 parley bench tests/audio --from en --to de --profile quality --glossary examples/glossary.tsv
 ```
 
-| profile | STT | MT | glossary | BLEU | chrF | own VRAM | peak GPU |
+| profile | STT | MT | glossary | BLEU | chrF | own weights | peak GPU |
 |---|---|---|---|---|---|---|---|
 | balanced | large-v3-turbo | NLLB-600M | – | 48.8 | 71.1 | 1.8 GB | 2.3 GB |
-| quality | large-v3 | NLLB-1.3B | – | 53.2 | 73.1 | 3.5 GB | 3.8 GB |
-| quality | large-v3 | NLLB-1.3B | yes | **54.5** | **77.6** | 3.5 GB | 4.7 GB |
+| balanced | large-v3-turbo | NLLB-600M | yes | 50.7 | 75.5 | 1.9 GB | 3.2 GB |
+| quality | large-v3 | NLLB-1.3B | – | 56.1 | 74.7 | ~3.0 GB | 4.9 GB |
+| quality | large-v3 | NLLB-1.3B | yes | **57.4** | **79.1** | ~3.0 GB | 4.9 GB |
 
 The glossary row is the interesting one: two repair entries
 (`Einsatzplan → Bereitstellungsplan`, `Haushalt → Budget`) bought more chrF than the
-ten-fold larger MT model. Terminology is where meeting translation actually fails.
+ten-fold larger MT model, and cost no VRAM at all. Terminology is where meeting
+translation actually fails.
+
+Beam search: 2 beats both 1 (59.1 BLEU on the sentence set) and 5 (59.0) on this
+corpus, and is faster than 5. Every profile uses 2 except `fast`, which uses 1.
+
+`own weights` is the sum of the resident models (STT + MT); `peak GPU` is whole-card
+usage including the browser and desktop, which is why it moves between runs.
 
 ## Latency
 
@@ -42,7 +50,7 @@ chunk (see below).
 | profile | STT p50 | MT p50 | lag p50 (end of speech → text ready) | peak GPU |
 |---|---|---|---|---|
 | balanced | 0.63 s | 0.25 s | **1.17 s** | 2.3 GB |
-| quality | 1.25 s | 0.46 s | 2.12 s | 5.3 GB |
+| quality | 1.13 s | 0.61 s | 2.01 s | 5.3 GB |
 
 `lag` includes the VAD endpoint wait (420 ms of silence before an utterance is
 declared finished). With speech enabled, add the time to the first synthesised audio
