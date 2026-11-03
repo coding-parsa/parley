@@ -95,15 +95,15 @@ PROFILES: dict[str, Profile] = {
         mt_size="600m",
         beam_size=2,
         tts_voice={"en": "en_US-hfc_male-medium", "de": "de_DE-thorsten-high", "default": "en_US-hfc_male-medium"},
-        note="default: turbo STT + NLLB-600M + high-quality Piper voice (~1.6 GB VRAM)",
+        note="default: turbo STT + NLLB-600M + high-quality Piper voice, 1.8 GB measured",
     ),
     "quality": Profile(
         name="quality",
         stt_model="whisper-large-v3",
         mt_size="1.3b",
-        beam_size=5,
+        beam_size=2,
         tts_voice={"en": "en_US-hfc_male-medium", "de": "de_DE-thorsten-high", "default": "en_US-hfc_male-medium"},
-        note="Large-v3 + NLLB-1.3B, ~3.3 GB VRAM, longer lag — best translation, still under 6 GB",
+        note="Large-v3 + NLLB-1.3B, 3.5 GB measured, 2.1 s lag — best translation, still under 6 GB",
     ),
 }
 

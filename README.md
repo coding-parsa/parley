@@ -42,17 +42,18 @@ RTX 4050 Laptop, 6 GB VRAM. Five synthetic meeting turns, author-written referen
 synthetic audio flatters every model, so treat these as an upper bound. Full
 method and commands: [docs/benchmarks.md](docs/benchmarks.md).
 
-| profile | STT | MT | glossary | BLEU | chrF | own VRAM | lag (end of speech) |
+| profile | STT | MT | glossary | BLEU | chrF | own weights | lag (end of speech) |
 |---|---|---|---|---|---|---|---|
 | `balanced` | large-v3-turbo | NLLB-600M | – | 48.8 | 71.1 | 1.8 GB | **1.17 s** |
-| `quality` | large-v3 | NLLB-1.3B | – | 53.2 | 73.1 | 3.5 GB | 2.12 s |
-| `quality` | large-v3 | NLLB-1.3B | yes | **54.5** | **77.6** | 3.5 GB | 2.12 s |
+| `balanced` | large-v3-turbo | NLLB-600M | yes | 50.7 | 75.5 | 1.8 GB | 1.17 s |
+| `quality` | large-v3 | NLLB-1.3B | – | 56.1 | 74.7 | ~3.0 GB | 2.01 s |
+| `quality` | large-v3 | NLLB-1.3B | yes | **57.4** | **79.1** | ~3.0 GB | 2.01 s |
 
-Two things worth reading off that table. The ten-fold larger MT model buys ~4 BLEU;
-**two glossary entries buy more chrF than the model does** — terminology is where
-meeting translation actually fails, which is why the glossary exists. And the whole
-thing, both directions, sits inside 3.5 GB of model weights: the ceiling is not a
-slogan, it is why TTS runs on the CPU and why exactly one pair is resident.
+Two things worth reading off that table. The ten-fold larger MT model buys ~7 BLEU;
+**two glossary entries buy +4 chrF and cost nothing** — terminology is where meeting
+translation actually fails, which is why the glossary exists. And the whole thing,
+both directions, sits inside ~3 GB of model weights: the ceiling is not a slogan, it
+is why TTS runs on the CPU and why exactly one pair is resident.
 
 Reproduce:
 
@@ -114,7 +115,7 @@ refuses to load a profile that cannot fit.
 |---|---|---|---|---|---|
 | `fast` | large-v3-turbo | NLLB-600M, beam 1 | ~900 MB | lowest | noisy rooms, long calls |
 | `balanced` | large-v3-turbo | NLLB-600M, beam 2 | ~1.8 GB | 1.2 s | default |
-| `quality` | large-v3 | NLLB-1.3B, beam 2 | ~3.5 GB | 2.1 s | best translation; wants a quiet GPU |
+| `quality` | large-v3 | NLLB-1.3B, beam 2 | ~3.0 GB | 2.0 s | best translation; wants a quiet GPU |
 
 TTS runs on the **CPU** on purpose: on a small card the GPU belongs to the
 recogniser and translator, and Piper already runs 5–25× faster than real time on a
