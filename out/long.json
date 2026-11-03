@@ -1,0 +1,84 @@
+{
+  "results": [
+    {
+      "index": 0,
+      "source_text": "Thanks everyone for joining. Today we need to review the deployment schedule and the budget for the next quarter.",
+      "translated_text": "Vielen Dank, dass Sie uns begleitet haben. Heute m\u00fcssen wir den Einsatzplan und den Haushalt f\u00fcr das n\u00e4chste Quartal \u00fcberpr\u00fcfen.",
+      "src_lang": "en",
+      "lang_prob": 0.0,
+      "audio_s": 5.79,
+      "stt_s": 0.752318999991985,
+      "mt_s": 0.3094942000025185,
+      "tts_s": 1.1572405999904731,
+      "lag_s": 3.1614010334014893,
+      "first_out_s": 5.856847524642944,
+      "dropped": "",
+      "partial": false,
+      "audio_path": "",
+      "t_end_wall": 1793738680.8780823,
+      "t_start_wall": 1793738675.0880823
+    },
+    {
+      "index": 1,
+      "source_text": "The client asked for a demo on Thursday, so the release has to be ready by Wednesday evening.",
+      "translated_text": "Der Kunde bat um eine Demo am Donnerstag. Donnerstag, also muss die Ver\u00f6ffentlichung bis Mittwoch Abend fertig sein.",
+      "src_lang": "en",
+      "lang_prob": 0.0,
+      "audio_s": 5.43,
+      "stt_s": 0.7193910999922082,
+      "mt_s": 0.3008698000048753,
+      "tts_s": 0.8728835000074469,
+      "lag_s": 2.9123198986053467,
+      "first_out_s": 4.176058053970337,
+      "dropped": "",
+      "partial": false,
+      "audio_path": "",
+      "t_end_wall": 1793738686.8178146,
+      "t_start_wall": 1793738681.3878145
+    },
+    {
+      "index": 2,
+      "source_text": "I think we should postpone the migration until the new database is stable.",
+      "translated_text": "Ich denke, wir sollten die Migration verschieben, bis die neue Datenbank stabil ist.",
+      "src_lang": "en",
+      "lang_prob": 0.0,
+      "audio_s": 4.02,
+      "stt_s": 0.743606699994416,
+      "mt_s": 0.3125205999967875,
+      "tts_s": 0.9552563000033842,
+      "lag_s": 3.000769853591919,
+      "first_out_s": 7.020769834518433,
+      "dropped": "",
+      "partial": false,
+      "audio_path": "",
+      "t_end_wall": 1793738691.287784,
+      "t_start_wall": 1793738687.267784
+    }
+  ],
+  "stats": {
+    "segments": 3,
+    "translated": 3,
+    "dropped": 0,
+    "lag_p50": 3.000769853591919,
+    "lag_p90": 3.1614010334014893,
+    "first_out_p50": 5.856847524642944,
+    "stt_p50": 0.743606699994416,
+    "mt_p50": 0.3094942000025185,
+    "vram": {
+      "ceiling_mb": 5600,
+      "resident": {
+        "stt": 1253,
+        "mt": 585,
+        "tts:de": 0
+      },
+      "resident_mb": 1838,
+      "own_peak_mb": 1953,
+      "gpu_peak_mb": 4825,
+      "gpu_used_mb": 4696,
+      "gpu_baseline_mb": 1846,
+      "headroom_mb": 3762
+    },
+    "gate_rejections": [],
+    "glossary_misses": []
+  }
+}

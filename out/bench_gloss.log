@@ -1,0 +1,29 @@
+                            bench · quality · en→de                            
+┌───────────────────┬─────────┬────────┬──────┬──────────┬────────────────────┐
+│ file              │ audio_s │ wall_s │ rtf  │ segments │ hypothesis         │
+├───────────────────┼─────────┼────────┼──────┼──────────┼────────────────────┤
+│ de_meeting_01.wav │ 6.4     │ 3.5    │ 0.55 │ 0        │                    │
+│ de_meeting_02.wav │ 6.3     │ 0.3    │ 0.05 │ 0        │                    │
+│ de_reference.wav  │ 8.2     │ 0.3    │ 0.04 │ 0        │                    │
+│ en_meeting_01.wav │ 8.2     │ 2.1    │ 0.25 │ 1        │ Vielen Dank fürs   │
+│                   │         │        │      │          │ Mitmachen. Heute   │
+│                   │         │        │      │          │ müssen wir den     │
+│                   │         │        │      │          │ Einsatzplan und    │
+│                   │         │        │      │          │ das B              │
+│ en_meeting_02.wav │ 7.5     │ 2.2    │ 0.3  │ 2        │ Der Kunde wollte   │
+│                   │         │        │      │          │ am Donnerstag eine │
+│                   │         │        │      │          │ Vorführung. Also   │
+│                   │         │        │      │          │ muss die Veröffen  │
+│ en_meeting_03.wav │ 5.6     │ 1.5    │ 0.26 │ 1        │ Ich denke, wir     │
+│                   │         │        │      │          │ sollten die        │
+│                   │         │        │      │          │ Migration          │
+│                   │         │        │      │          │ verschieben, bis   │
+│                   │         │        │      │          │ die neue Datenba   │
+│ en_meeting_long.… │ 23.1    │ 4.0    │ 0.17 │ 3        │ Vielen Dank fürs   │
+│                   │         │        │      │          │ Mitmachen. Heute   │
+│                   │         │        │      │          │ müssen wir den     │
+│                   │         │        │      │          │ Einsatzplan und    │
+│                   │         │        │      │          │ das B              │
+└───────────────────┴─────────┴────────┴──────┴──────────┴────────────────────┘
+BLEU 53.2 · chrF 73.1 over 3 reference file(s)
+peak GPU 3782 MB · own models 3625 MB

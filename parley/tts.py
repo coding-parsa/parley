@@ -13,46 +13,17 @@ so the translated voice speaks at a listening pace rather than a dictation pace.
 
 from __future__ import annotations
 
-import re
 import time
 from pathlib import Path
 
 import numpy as np
 
-SENTENCE_SPLIT = re.compile(r"(?<=[.!?…])\s+|(?<=[;:])\s+")
-MAX_CHUNK_CHARS = 220
+from .text import MAX_CHUNK_CHARS, speakable_chunks
 
 
 def split_for_speech(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[str]:
-    """Break translated text into speakable clauses, keeping punctuation."""
-    text = " ".join(text.split())
-    if not text:
-        return []
-    pieces: list[str] = []
-    for sentence in SENTENCE_SPLIT.split(text):
-        sentence = sentence.strip()
-        if not sentence:
-            continue
-        if len(sentence) <= max_chars:
-            pieces.append(sentence)
-            continue
-        # long sentence: prefer commas, then hard-wrap
-        buffer = ""
-        for part in re.split(r"(?<=,)\s+", sentence):
-            if len(buffer) + len(part) + 1 <= max_chars:
-                buffer = f"{buffer} {part}".strip()
-            else:
-                if buffer:
-                    pieces.append(buffer)
-                while len(part) > max_chars:
-                    cut = part.rfind(" ", 0, max_chars)
-                    cut = cut if cut > 40 else max_chars
-                    pieces.append(part[:cut].strip())
-                    part = part[cut:].strip()
-                buffer = part
-        if buffer:
-            pieces.append(buffer)
-    return [p for p in pieces if p]
+    """Backwards-compatible alias for :func:`parley.text.speakable_chunks`."""
+    return speakable_chunks(text, max_chars)
 
 
 class PiperTts:

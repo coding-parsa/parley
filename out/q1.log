@@ -1,0 +1,22 @@
+model stt: ~2020 MB VRAM, loaded in 11.42s
+model mt: ~1632 MB VRAM, loaded in 16.55s
+model tts:de: ~0 MB VRAM, loaded in 3.67s
+ready profile=quality stt=whisper-large-v3 mt=nllb-1.3b tts=de_DE-thorsten-high
+ceiling=5600MB
+listening — Ctrl+C to stop
+EN Thanks everyone for joining. Today we need to review the deployment schedule
+and the budget for the next quarter.
+  Vielen Dank fürs Mitmachen. Heute müssen wir den Bereitstellungsplan und das 
+Budget für das nächste Quartal überprüfen. (stt 0.98s · mt 0.64s · lag 1.62s)
+                          en_meeting_01.wav · en → de                          
+┌───┬────────────────────────────────┬────────────────────────────────┬───────┐
+│ # │ source                         │ translation                    │   lag │
+├───┼────────────────────────────────┼────────────────────────────────┼───────┤
+│ 0 │ Thanks everyone for joining.   │ Vielen Dank fürs Mitmachen.    │ 1.62s │
+│   │ Today we need to review the    │ Heute müssen wir den           │       │
+│   │ deployment schedule and the    │ Bereitstellungsplan und das    │       │
+│   │ budget for the next quarter.   │ Budget für das nächste Quartal │       │
+│   │                                │ überprüfen.                    │       │
+└───┴────────────────────────────────┴────────────────────────────────┴───────┘
+8.2s audio processed in 5.1s (1.6× real time) · peak VRAM 4866 MB of 5600 MB 
+budget

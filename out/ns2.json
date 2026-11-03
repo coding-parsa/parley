@@ -1,0 +1,47 @@
+{
+  "results": [
+    {
+      "index": 0,
+      "source_text": "Thanks everyone for joining. Today we need to review the deployment schedule and the budget for the next quarter.",
+      "translated_text": "Vielen Dank, dass Sie uns begleitet haben. Heute m\u00fcssen wir den Einsatzplan und den Haushalt f\u00fcr das n\u00e4chste Quartal \u00fcberpr\u00fcfen.",
+      "src_lang": "en",
+      "lang_prob": 0.0,
+      "audio_s": 5.79,
+      "stt_s": 0.6427488000044832,
+      "mt_s": 0.22572449999279343,
+      "tts_s": 0.0,
+      "lag_s": 1.212005853652954,
+      "first_out_s": 0.0,
+      "dropped": "",
+      "partial": false,
+      "audio_path": "",
+      "t_end_wall": 1793739649.9624865,
+      "t_start_wall": 1793739644.1724865
+    }
+  ],
+  "stats": {
+    "segments": 1,
+    "translated": 1,
+    "dropped": 0,
+    "lag_p50": 1.212005853652954,
+    "lag_p90": 1.212005853652954,
+    "first_out_p50": 0.0,
+    "stt_p50": 0.6427488000044832,
+    "mt_p50": 0.22572449999279343,
+    "vram": {
+      "ceiling_mb": 5600,
+      "resident": {
+        "stt": 1096,
+        "mt": 544
+      },
+      "resident_mb": 1640,
+      "own_peak_mb": 1796,
+      "gpu_peak_mb": 2306,
+      "gpu_used_mb": 2146,
+      "gpu_baseline_mb": 158,
+      "headroom_mb": 3960
+    },
+    "gate_rejections": [],
+    "glossary_misses": []
+  }
+}

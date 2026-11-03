@@ -1,0 +1,52 @@
+model stt: ~1097 MB VRAM, loaded in 5.48s
+model mt: ~544 MB VRAM, loaded in 5.51s
+model tts:de: ~0 MB VRAM, loaded in 4.51s
+ready profile=balanced stt=whisper-turbo mt=nllb-600m tts=de_DE-thorsten-high 
+ceiling=5600MB
+listening — Ctrl+C to stop
+  … Vielen Dank, dass Sie uns begleitet haben.
+  … Sie sind dabei.
+  … Sie sind dabei. Heute müssen wir den Einsatzplan überprüfen.
+  … Sie sind dabei.
+  … Sie sind dabei.
+  … Sie sind dabei. Heute müssen wir den Einsatzplan und den Haushalt für das 
+nächste Quartal überprüfen.
+EN Thanks everyone for joining. Today we need to review the deployment schedule
+and the budget for the next quarter.
+  Vielen Dank, dass Sie uns begleitet haben. Sie sind dabei. Sie sind dabei. 
+Heute müssen wir den Einsatzplan überprüfen. Sie sind dabei. Sie sind dabei. 
+Sie sind dabei. Heute müssen wir den Einsatzplan und den Haushalt für das 
+nächste Quartal überprüfen. Sie sind dabei. Heute müssen wir den Einsatzplan 
+und den Haushalt für das nächste Quartal überprüfen. (stt 0.75s · mt 0.32s · 
+lag 0.00s)
+                    simulate · en_meeting_01.wav · balanced                    
+┌───┬───────────────────┬────────────────────┬────────┬───────┬───────┬───────┐
+│ # │ source            │ translation        │ speech │   stt │    mt │   lag │
+├───┼───────────────────┼────────────────────┼────────┼───────┼───────┼───────┤
+│ 0 │ Thanks everyone   │ Vielen Dank, dass  │   5.8s │ 0.75s │ 0.32s │ 3.05s │
+│   │ for joining.      │ Sie uns begleitet  │        │       │       │       │
+│   │ Today we need to  │ haben. Sie sind    │        │       │       │       │
+│   │ review the        │ dabei. Sie sind    │        │       │       │       │
+│   │ deployment        │ dabei. Heute       │        │       │       │       │
+│   │ schedule and the  │ müssen wir den     │        │       │       │       │
+│   │ budget for the    │ Einsatzplan        │        │       │       │       │
+│   │ next quarter.     │ überprüfen. Sie    │        │       │       │       │
+│   │                   │ sind dabei. Sie    │        │       │       │       │
+│   │                   │ sind dabei. Sie    │        │       │       │       │
+│   │                   │ sind dabei. Heute  │        │       │       │       │
+│   │                   │ müssen wir den     │        │       │       │       │
+│   │                   │ Einsatzplan und    │        │       │       │       │
+│   │                   │ den Haushalt für   │        │       │       │       │
+│   │                   │ das nächste        │        │       │       │       │
+│   │                   │ Quartal            │        │       │       │       │
+│   │                   │ überprüfen. Sie    │        │       │       │       │
+│   │                   │ sind dabei. Heute  │        │       │       │       │
+│   │                   │ müssen wir den     │        │       │       │       │
+│   │                   │ Einsatzplan und    │        │       │       │       │
+│   │                   │ den Haushalt für   │        │       │       │       │
+│   │                   │ das nächste        │        │       │       │       │
+│   │                   │ Quartal            │        │       │       │       │
+│   │                   │ überprüfen.        │        │       │       │       │
+└───┴───────────────────┴────────────────────┴────────┴───────┴───────┴───────┘
+lag p50 3.05s · p90 3.05s · stt p50 0.75s · mt p50 0.32s · wall 10.0s · peak 
+GPU 2594 MB

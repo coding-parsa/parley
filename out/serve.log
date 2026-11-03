@@ -1,0 +1,1 @@
+parley console on http://127.0.0.1:8771  (profile=balanced stt=whisper-turbo mt=nllb-600m tts=de_DE-thorsten-high ceiling=5600MB)

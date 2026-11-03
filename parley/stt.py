@@ -82,13 +82,14 @@ class WhisperStt:
             return str(result[0]), float(result[1])
         return str(result), 0.0
 
-    def transcribe(self, audio: np.ndarray, language: str | None = None) -> Transcript:
+    def transcribe(self, audio: np.ndarray, language: str | None = None,
+                   beam_size: int | None = None) -> Transcript:
         assert self.model is not None, "call load() first"
         started = time.perf_counter()
         segments, info = self.model.transcribe(
             audio,
             language=language,
-            beam_size=self.beam_size,
+            beam_size=beam_size or self.beam_size,
             vad_filter=False,
             condition_on_previous_text=False,
             no_speech_threshold=0.6,
@@ -138,14 +139,18 @@ class Committer:
     """Turns a stream of partial hypotheses into text that is safe to speak.
 
     A chunk is committed when it ends at a hard clause boundary and the same
-    boundary survived at least one previous hypothesis (LocalAgreement, the idea
-    behind ufal's whisper_streaming). Nothing is ever committed twice.
+    boundary survived a previous hypothesis (LocalAgreement, the idea behind ufal's
+    whisper_streaming). Nothing is committed twice — including when the model
+    rewrites the words it already committed, which is handled by matching against
+    the longest common prefix rather than testing for an exact prefix.
     """
 
-    def __init__(self, min_chars: int = 3, soft_commit: bool = True, max_buffer_chars: int = 400):
+    def __init__(self, min_chars: int = 3, soft_commit: bool = True, max_buffer_chars: int = 400,
+                 require_agreement: bool = True):
         self.min_chars = min_chars
         self.soft_commit = soft_commit
         self.max_buffer_chars = max_buffer_chars
+        self.require_agreement = require_agreement
         self._committed = ""
         self._last_hypothesis = ""
 
@@ -157,6 +162,18 @@ class Committer:
         self._committed = ""
         self._last_hypothesis = ""
 
+    @staticmethod
+    def _common_prefix_len(a: str, b: str) -> int:
+        limit = min(len(a), len(b))
+        i = 0
+        while i < limit and a[i].lower() == b[i].lower():
+            i += 1
+        # do not cut a word in half: back off to the last space
+        if i < limit and a[max(i - 1, 0)] not in " \t":
+            back = a.rfind(" ", 0, i)
+            i = back if back > 0 else i
+        return i
+
     def update(self, hypothesis: str, final: bool = False) -> str:
         """Return the newly committed text ('' when nothing new is safe yet)."""
         hypothesis = hypothesis.strip()
@@ -165,28 +182,33 @@ class Committer:
         previous = self._last_hypothesis
         self._last_hypothesis = hypothesis
         already = self._committed
-        if hypothesis.startswith(already):
-            candidate = hypothesis[len(already):]
-        else:                                   # the model rewrote the committed prefix
-            candidate = hypothesis
-            already = ""
+        start = self._common_prefix_len(already, hypothesis)
+        candidate = hypothesis[start:].strip()
+        candidate_words = candidate.split()
+        shares_prefix = self._common_prefix_len(already, previous) >= start
+        previous_words = previous[start:].split() if shares_prefix and previous else []
 
-        cut = 0
-        for match in CLAUSE_END.finditer(candidate):
-            if match.end() >= self.min_chars:
-                cut = match.end()
-        if cut == 0 and self.soft_commit:
-            for match in SOFT_END.finditer(candidate):
-                end = match.end()
-                if end >= max(self.min_chars, 12) and candidate[:end] in previous:
-                    cut = end
+        # word-level LocalAgreement: only words that two consecutive decodes agree on
+        agreed = 0
+        for current_word, old_word in zip(candidate_words, previous_words):
+            if current_word.lower().strip(".,!?;:") != old_word.lower().strip(".,!?;:"):
+                break
+            agreed += 1
 
         if final:
-            commit = candidate.strip()
-        elif cut:
-            commit = candidate[:cut].strip()
+            commit = candidate
         else:
-            return ""
+            agreed_text = " ".join(candidate_words[:agreed]) if self.require_agreement else candidate
+            cut = 0
+            for match in CLAUSE_END.finditer(agreed_text):
+                if match.end() >= self.min_chars:
+                    cut = match.end()
+            if cut == 0 and self.soft_commit:
+                for match in SOFT_END.finditer(agreed_text):
+                    if match.end() >= max(self.min_chars, 24):
+                        cut = match.end()
+            commit = agreed_text[:cut].strip() if cut else ""
+
         if len(commit) < self.min_chars:
             return ""
         self._committed = (already + " " + commit).strip() if already else commit

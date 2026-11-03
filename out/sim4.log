@@ -1,0 +1,28 @@
+model stt: ~901 MB VRAM, loaded in 6.67s
+model mt: ~700 MB VRAM, loaded in 6.57s
+model tts:de: ~0 MB VRAM, loaded in 3.86s
+ready profile=balanced stt=whisper-turbo mt=nllb-600m tts=de_DE-thorsten-high 
+ceiling=5600MB
+listening — Ctrl+C to stop
+  … Vielen Dank, dass Sie uns begleitet haben.
+EN Thanks everyone for joining. Today we need to review the deployment schedule
+and the budget for the next quarter.
+  Vielen Dank, dass Sie uns begleitet haben. Heute müssen wir den Einsatzplan 
+und den Haushalt für das nächste Quartal überprüfen. (stt 0.63s · mt 0.24s · 
+lag 0.00s)
+                    simulate · en_meeting_01.wav · balanced                    
+┌───┬───────────────────┬────────────────────┬────────┬───────┬───────┬───────┐
+│ # │ source            │ translation        │ speech │   stt │    mt │   lag │
+├───┼───────────────────┼────────────────────┼────────┼───────┼───────┼───────┤
+│ 0 │ Thanks everyone   │ Vielen Dank, dass  │   5.8s │ 0.63s │ 0.24s │ 2.38s │
+│   │ for joining.      │ Sie uns begleitet  │        │       │       │       │
+│   │ Today we need to  │ haben. Heute       │        │       │       │       │
+│   │ review the        │ müssen wir den     │        │       │       │       │
+│   │ deployment        │ Einsatzplan und    │        │       │       │       │
+│   │ schedule and the  │ den Haushalt für   │        │       │       │       │
+│   │ budget for the    │ das nächste        │        │       │       │       │
+│   │ next quarter.     │ Quartal            │        │       │       │       │
+│   │                   │ überprüfen.        │        │       │       │       │
+└───┴───────────────────┴────────────────────┴────────┴───────┴───────┴───────┘
+lag p50 2.38s · p90 2.38s · stt p50 0.63s · mt p50 0.24s · wall 8.5s · peak GPU
+2610 MB

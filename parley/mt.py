@@ -28,19 +28,26 @@ class GlossaryEntry:
     source: str
     target: str
     variants: tuple[str, ...] = ()
+    mode: str = "repair"          # repair | inject | both
 
 
 class Glossary:
     """Terminology lock for names, product words and numbers.
 
-    Two jobs, both honest about what a plain MT model can and cannot do:
+    Two mechanisms, because they fail in opposite directions:
 
-    * *repair* — replace known bad renderings with the approved term;
-    * *report* — flag when the source term appeared but the approved target term
-      did not, so the operator sees it instead of shipping a wrong word.
+    * **inject** — put the approved term into the source text before translation
+      (``"the deployment schedule"`` → ``"the Bereitstellungsplan"``). NLLB is trained
+      on multilingual text and copies an already-correct term through. Best for
+      proper nouns and product names, which have no grammar to break. Measured
+      trade-off: it can cost a grammatical gender elsewhere ("das Finanzbericht"),
+      so it is opt-in per term.
+    * **repair** — replace known bad renderings after translation, then *report*
+      every approved term that is missing from the output, so the operator sees a
+      miss instead of hearing one.
 
-    It does not try to force the model's decoder; NLLB offers no such hook, and
-    pretending otherwise is how glossaries get a bad name.
+    Neither pretends to force the decoder; NLLB offers no such hook, and pretending
+    otherwise is how glossaries get a bad name.
     """
 
     def __init__(self, entries: list[GlossaryEntry] | None = None):
@@ -63,16 +70,29 @@ class Glossary:
             if len(parts) < 2:
                 continue
             variants = tuple(v for v in (parts[2].split(";") if len(parts) > 2 else []) if v)
-            entries.append(GlossaryEntry(parts[0], parts[1], variants))
+            mode = (parts[3].lower() if len(parts) > 3 else "repair")
+            if mode not in ("repair", "inject", "both"):
+                mode = "repair"
+            entries.append(GlossaryEntry(parts[0], parts[1], variants, mode))
         return cls(entries)
+
+    def inject(self, source_text: str) -> str:
+        """Substitute approved target terms into the source for inject-mode entries."""
+        text = source_text
+        for entry in self.entries:
+            if entry.mode not in ("inject", "both"):
+                continue
+            text = re.sub(re.escape(entry.source), entry.target, text, flags=re.IGNORECASE)
+        return text
 
     def repair(self, source_text: str, target_text: str) -> str:
         fixed = target_text
         for entry in self.entries:
             if entry.source.lower() not in source_text.lower():
                 continue
-            for variant in entry.variants:
-                fixed = re.sub(re.escape(variant), entry.target, fixed, flags=re.IGNORECASE)
+            if entry.mode in ("repair", "both"):
+                for variant in entry.variants:
+                    fixed = re.sub(re.escape(variant), entry.target, fixed, flags=re.IGNORECASE)
             if entry.target.lower() not in fixed.lower():
                 self.misses.append((entry.source, entry.target))
         return fixed
@@ -134,6 +154,12 @@ class NllbMt:
         except Exception:  # noqa: BLE001
             pass
 
+    def _tokens(self, text: str, src: str) -> list[str]:
+        """NLLB expects ``<src_lang> text </s>`` — without the trailing EOS this
+        CTranslate2 export decodes to a row of dashes instead of a translation."""
+        assert self.sp is not None
+        return [src] + list(self.sp.encode(text, out_type=str)) + ["</s>"]
+
     def translate(self, text: str, source: str, target: str) -> str:
         assert self.translator is not None and self.sp is not None, "call load() first"
         text = text.strip()
@@ -142,7 +168,7 @@ class NllbMt:
         src, tgt = nllb_code(source), nllb_code(target)
         if src == tgt:
             return text
-        tokens = [src] + list(self.sp.encode(text, out_type=str))
+        tokens = self._tokens(text, src)
         t0 = time.perf_counter()
         results = self.translator.translate_batch(
             [tokens],
@@ -164,7 +190,7 @@ class NllbMt:
         """Batched translation for file mode (one decoder call instead of N)."""
         assert self.translator is not None and self.sp is not None, "call load() first"
         src, tgt = nllb_code(source), nllb_code(target)
-        batch = [[src] + list(self.sp.encode(t, out_type=str)) for t in texts if t.strip()]
+        batch = [self._tokens(t, src) for t in texts if t.strip()]
         if not batch:
             return ["" for _ in texts]
         results = self.translator.translate_batch(

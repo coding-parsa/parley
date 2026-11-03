@@ -1,0 +1,25 @@
+                           bench · balanced · en→de                            
+┌───────────────────┬─────────┬────────┬──────┬──────────┬────────────────────┐
+│ file              │ audio_s │ wall_s │ rtf  │ segments │ hypothesis         │
+├───────────────────┼─────────┼────────┼──────┼──────────┼────────────────────┤
+│ de_meeting_01.wav │ 6.4     │ 3.8    │ 0.6  │ 0        │                    │
+│ de_meeting_02.wav │ 6.3     │ 0.3    │ 0.04 │ 0        │                    │
+│ de_reference.wav  │ 8.2     │ 0.3    │ 0.03 │ 0        │                    │
+│ en_meeting_01.wav │ 8.2     │ 1.2    │ 0.15 │ 1        │ Vielen Dank, dass  │
+│                   │         │        │      │          │ Sie uns begleitet  │
+│                   │         │        │      │          │ haben. Heute       │
+│                   │         │        │      │          │ müssen wir den     │
+│                   │         │        │      │          │ Einsat             │
+│ en_meeting_02.wav │ 7.5     │ 1.5    │ 0.2  │ 2        │ Der Kunde bat um   │
+│                   │         │        │      │          │ eine Demo am       │
+│                   │         │        │      │          │ Donnerstag. Also   │
+│                   │         │        │      │          │ muss die           │
+│                   │         │        │      │          │ Veröffentlichu     │
+│ en_meeting_03.wav │ 5.6     │ 1.0    │ 0.18 │ 1        │ Ich denke, wir     │
+│                   │         │        │      │          │ sollten die        │
+│                   │         │        │      │          │ Migration          │
+│                   │         │        │      │          │ verschieben, bis   │
+│                   │         │        │      │          │ die neue Datenba   │
+└───────────────────┴─────────┴────────┴──────┴──────────┴────────────────────┘
+BLEU 48.8 · chrF 71.1 over 3 reference file(s)
+peak GPU 3791 MB · own models 1381 MB

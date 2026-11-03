@@ -260,6 +260,58 @@ class Speaker:
         self.close()
 
 
+class FileSource:
+    """Feeds a wav through the live pipeline.
+
+    With ``realtime=True`` the frames are paced to wall-clock, so the measured lag is
+    the lag you would get from a microphone — the only difference is where the audio
+    comes from. That makes latency reproducible on a machine with no meeting and no
+    microphone, which is what the benchmark table in the README is built from.
+    """
+
+    device = None
+
+    def __init__(self, path: str | Path, block_ms: int = 30, realtime: bool = True):
+        self.audio, self.samplerate = read_wav(path)
+        if self.samplerate != TARGET_SR:
+            self.audio = resample(self.audio, self.samplerate, TARGET_SR)
+            self.samplerate = TARGET_SR
+        self.block_ms = block_ms
+        self.realtime = realtime
+        self.overflow = 0
+
+    def open(self) -> "FileSource":
+        return self
+
+    def frames(self) -> Iterator[np.ndarray]:
+        step = int(self.samplerate * self.block_ms / 1000)
+        started = time.time()
+        for i in range(0, len(self.audio), step):
+            block = np.ascontiguousarray(self.audio[i:i + step], dtype=np.float32)
+            if block.size < step:
+                block = np.pad(block, (0, step - block.size))
+            if self.realtime:
+                target = started + (i + step) / self.samplerate
+                delay = target - time.time()
+                if delay > 0:
+                    time.sleep(delay)
+            yield block
+        # let the tail behave like a burst of silence, so the last utterance closes
+        for _ in range(int(0.8 * 1000 / self.block_ms)):
+            if self.realtime:
+                time.sleep(self.block_ms / 1000)
+            yield np.zeros(step, dtype=np.float32)
+
+    def close(self) -> None:
+        return None
+
+    def __enter__(self) -> "FileSource":
+        return self.open()
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+
 # --- files ------------------------------------------------------------------------
 def read_wav(path: str | Path) -> tuple[np.ndarray, int]:
     import soundfile as sf

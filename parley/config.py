@@ -132,7 +132,8 @@ class Config:
     min_speech_ms: int = 280
     max_utterance_s: float = 14.0
     min_commit_chars: int = 3
-    partial_interval_ms: int = 700  # re-decode cadence while the speaker talks
+    partial_interval_ms: int = 500  # re-decode cadence while the speaker talks
+    commit_mode: str = "strict"     # strict = two decodes must agree; eager = first clause wins
 
     # language gate
     min_lang_prob: float = 0.60

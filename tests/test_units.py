@@ -45,15 +45,29 @@ def test_gate_still_accepts_low_confidence_foreign_audio():
 
 
 # --- commit policy ----------------------------------------------------------------
-def test_committer_waits_for_a_clause_boundary():
+def test_committer_waits_for_agreement_then_a_clause_boundary():
+    """One unstable hypothesis is never enough: two decodes must agree."""
     committer = Committer(min_chars=3)
     assert committer.update("The meeting is tomorrow") == ""
     assert committer.update("The meeting is tomorrow. Please send") == "The meeting is tomorrow."
-    assert committer.update("The meeting is tomorrow. Please send the report.") == "Please send the report."
+    # the second clause is not yet agreed by two decodes, so it waits…
+    assert committer.update("The meeting is tomorrow. Please send the report.") == ""
+    # …and is flushed when the utterance ends
+    assert committer.update("The meeting is tomorrow. Please send the report.", final=True) == \
+        "Please send the report."
+
+
+def test_committer_ignores_a_hypothesis_that_changes_its_mind():
+    committer = Committer(min_chars=3)
+    assert committer.update("Vielen Dank, dass Sie uns begleitet haben.") == ""
+    # the model rewrote the beginning; nothing may be spoken yet
+    assert committer.update("Sie sind dabei.") == ""
+    assert committer.update("Sie sind dabei. Heute müssen wir planen.") == "Sie sind dabei."
 
 
 def test_committer_does_not_repeat_itself():
     committer = Committer(min_chars=3)
+    committer.update("First sentence.", final=False)
     first = committer.update("First sentence. Second", final=False)
     second = committer.update("First sentence. Second", final=False)
     assert first == "First sentence."

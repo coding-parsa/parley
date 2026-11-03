@@ -1,0 +1,47 @@
+{
+  "results": [
+    {
+      "index": 0,
+      "source_text": "I think we should postpone the migration until the new database is stable.",
+      "translated_text": "Ich denke, wir sollten die Migration verschieben, bis die neue Datenbank stabil ist.",
+      "src_lang": "en",
+      "lang_prob": 0.0,
+      "audio_s": 3.96,
+      "stt_s": 0.7084975000034319,
+      "mt_s": 0.5529486000014003,
+      "tts_s": 0.0,
+      "lag_s": 1.423818588256836,
+      "first_out_s": 0.0,
+      "dropped": "",
+      "partial": false,
+      "audio_path": "",
+      "t_end_wall": 1793739710.506634,
+      "t_start_wall": 1793739706.546634
+    }
+  ],
+  "stats": {
+    "segments": 1,
+    "translated": 1,
+    "dropped": 0,
+    "lag_p50": 1.423818588256836,
+    "lag_p90": 1.423818588256836,
+    "first_out_p50": 0.0,
+    "stt_p50": 0.7084975000034319,
+    "mt_p50": 0.5529486000014003,
+    "vram": {
+      "ceiling_mb": 5600,
+      "resident": {
+        "stt": 1468,
+        "mt": 545
+      },
+      "resident_mb": 2013,
+      "own_peak_mb": 2168,
+      "gpu_peak_mb": 3496,
+      "gpu_used_mb": 3513,
+      "gpu_baseline_mb": 1065,
+      "headroom_mb": 3587
+    },
+    "gate_rejections": [],
+    "glossary_misses": []
+  }
+}

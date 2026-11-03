@@ -1,0 +1,65 @@
+{
+  "results": [
+    {
+      "index": 0,
+      "source_text": "The client asked for a demo on Thursday.",
+      "translated_text": "Der Kunde bat um eine Demo am Donnerstag.",
+      "src_lang": "en",
+      "lang_prob": 0.0,
+      "audio_s": 2.37,
+      "stt_s": 0.560802899999544,
+      "mt_s": 0.3800440999912098,
+      "tts_s": 0.0,
+      "lag_s": 1.4288215637207031,
+      "first_out_s": 0.0,
+      "dropped": "",
+      "partial": false,
+      "audio_path": "",
+      "t_end_wall": 1793739686.6699512,
+      "t_start_wall": 1793739684.2999513
+    },
+    {
+      "index": 1,
+      "source_text": "so the release has to be ready by Wednesday evening.",
+      "translated_text": "Also muss die Ver\u00f6ffentlichung bis Mittwoch Abend fertig sein.",
+      "src_lang": "en",
+      "lang_prob": 0.0,
+      "audio_s": 2.67,
+      "stt_s": 0.6342003000027034,
+      "mt_s": 0.2173536000045715,
+      "tts_s": 0.0,
+      "lag_s": 0.9828870296478271,
+      "first_out_s": 0.0,
+      "dropped": "",
+      "partial": false,
+      "audio_path": "",
+      "t_end_wall": 1793739689.6428633,
+      "t_start_wall": 1793739686.9728632
+    }
+  ],
+  "stats": {
+    "segments": 2,
+    "translated": 2,
+    "dropped": 0,
+    "lag_p50": 0.9828870296478271,
+    "lag_p90": 1.4288215637207031,
+    "first_out_p50": 0.0,
+    "stt_p50": 0.560802899999544,
+    "mt_p50": 0.2173536000045715,
+    "vram": {
+      "ceiling_mb": 5600,
+      "resident": {
+        "stt": 1809,
+        "mt": 604
+      },
+      "resident_mb": 2413,
+      "own_peak_mb": 2509,
+      "gpu_peak_mb": 3122,
+      "gpu_used_mb": 2983,
+      "gpu_baseline_mb": 188,
+      "headroom_mb": 3187
+    },
+    "gate_rejections": [],
+    "glossary_misses": []
+  }
+}

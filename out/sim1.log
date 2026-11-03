@@ -1,0 +1,34 @@
+model stt: ~439 MB VRAM, loaded in 7.21s
+model mt: ~544 MB VRAM, loaded in 7.71s
+model tts:de: ~0 MB VRAM, loaded in 4.07s
+ready profile=balanced stt=whisper-turbo mt=nllb-600m tts=de_DE-thorsten-high 
+ceiling=5600MB
+listening — Ctrl+C to stop
+  … Vielen Dank, dass Sie uns begleitet haben.
+  … Vielen Dank, dass Sie uns begleitet haben.
+  … Heute müssen wir den Einsatzplan überprüfen.
+  … Vielen Dank, dass Sie uns begleitet haben. Heute müssen wir den Einsatzplan
+und den Haushalt für das nächste Jahr überprüfen.
+  … Vielen Dank, dass Sie uns begleitet haben. Heute müssen wir den Einsatzplan
+und den Haushalt für das nächste Quartal überprüfen.
+EN Thanks everyone for joining. Today we need to review the deployment schedule
+and the budget for the next quarter.
+  Vielen Dank, dass Sie uns begleitet haben. Heute müssen wir den Einsatzplan 
+und den Haushalt für das nächste Quartal überprüfen. (stt 0.51s · mt 0.33s · 
+lag 0.00s)
+                    simulate · en_meeting_01.wav · balanced                    
+┌───┬───────────────────┬────────────────────┬────────┬───────┬───────┬───────┐
+│ # │ source            │ translation        │ speech │   stt │    mt │   lag │
+├───┼───────────────────┼────────────────────┼────────┼───────┼───────┼───────┤
+│ 0 │ Thanks everyone   │ Vielen Dank, dass  │   5.8s │ 0.51s │ 0.33s │ 3.94s │
+│   │ for joining.      │ Sie uns begleitet  │        │       │       │       │
+│   │ Today we need to  │ haben. Heute       │        │       │       │       │
+│   │ review the        │ müssen wir den     │        │       │       │       │
+│   │ deployment        │ Einsatzplan und    │        │       │       │       │
+│   │ schedule and the  │ den Haushalt für   │        │       │       │       │
+│   │ budget for the    │ das nächste        │        │       │       │       │
+│   │ next quarter.     │ Quartal            │        │       │       │       │
+│   │                   │ überprüfen.        │        │       │       │       │
+└───┴───────────────────┴────────────────────┴────────┴───────┴───────┴───────┘
+lag p50 3.94s · p90 3.94s · stt p50 0.51s · mt p50 0.33s · wall 11.0s · peak 
+GPU 4663 MB

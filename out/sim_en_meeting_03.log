@@ -1,0 +1,22 @@
+model stt: ~1097 MB VRAM, loaded in 5.19s
+model mt: ~544 MB VRAM, loaded in 5.94s
+model tts:de: ~0 MB VRAM, loaded in 4.54s
+ready profile=balanced stt=whisper-turbo mt=nllb-600m tts=de_DE-thorsten-high 
+ceiling=5600MB
+listening — Ctrl+C to stop
+EN I think we should postpone the migration until the new database is stable.
+  Ich denke, wir sollten die Migration verschieben, bis die neue Datenbank 
+stabil ist. (stt 0.62s · mt 0.41s · lag 0.00s)
+                    simulate · en_meeting_03.wav · balanced                    
+┌───┬───────────────────┬────────────────────┬────────┬───────┬───────┬───────┐
+│ # │ source            │ translation        │ speech │   stt │    mt │   lag │
+├───┼───────────────────┼────────────────────┼────────┼───────┼───────┼───────┤
+│ 0 │ I think we should │ Ich denke, wir     │   4.0s │ 0.62s │ 0.41s │ 2.60s │
+│   │ postpone the      │ sollten die        │        │       │       │       │
+│   │ migration until   │ Migration          │        │       │       │       │
+│   │ the new database  │ verschieben, bis   │        │       │       │       │
+│   │ is stable.        │ die neue Datenbank │        │       │       │       │
+│   │                   │ stabil ist.        │        │       │       │       │
+└───┴───────────────────┴────────────────────┴────────┴───────┴───────┴───────┘
+lag p50 2.60s · p90 2.60s · stt p50 0.62s · mt p50 0.41s · wall 6.9s · peak GPU
+2450 MB

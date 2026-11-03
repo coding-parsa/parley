@@ -16,7 +16,7 @@ from . import __version__
 from .audio import find_loopback_device, list_devices, open_source, read_wav, Speaker
 from .config import PROFILES, Config, language_name
 from .pipeline import Interpreter
-from .vram import Budget, gpu_name, gpu_used_mb
+from .vram import Budget, GpuSampler, gpu_name, gpu_used_mb
 from .vad import SR
 
 console = Console()
@@ -58,6 +58,8 @@ def _pretty_event(event: dict) -> None:
                       f"lag {event['lag_s']:.2f}s)[/dim]")
     elif kind == "partial_commit":
         console.print(f"  [dim]… {event['translated']}[/dim]")
+    elif kind == "partial":
+        console.print(f"    [dim]{event.get('audio_s')}s heard → “{event.get('text', '')[:70]}”[/dim]")
     elif kind == "rejected":
         console.print(f"[yellow]language gate[/yellow] {event['reason']}")
     elif kind == "error":
@@ -229,6 +231,43 @@ def cmd_bench(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_simulate(args: argparse.Namespace) -> int:
+    """Push a wav through the *live* pipeline, pacing it to wall clock.
+
+    This is the number that matters: end-of-speech → first translated audio, with
+    VAD, partial decoding and TTS in the loop. File mode is for content; this is for
+    latency.
+    """
+    from .audio import FileSource
+
+    cfg = _config_from_args(args)
+    cfg.speak = not args.no_speak
+    interpreter = Interpreter(cfg, on_event=_pretty_event)
+    interpreter.warm()
+    source = FileSource(args.path, block_ms=cfg.block_ms, realtime=not args.fast)
+    started = time.perf_counter()
+    with GpuSampler(interpreter.budget):
+        results = interpreter.run_live(source, None, threading.Event(), partials=not args.no_partials)
+    wall = time.perf_counter() - started
+    stats = interpreter.stats()
+
+    table = Table(title=f"simulate · {Path(args.path).name} · {cfg.profile}")
+    for column in ("#", "source", "translation", "speech", "stt", "mt", "lag"):
+        table.add_column(column, justify="right" if column != "source" and column != "translation" else "left")
+    for r in results:
+        table.add_row(str(r.index), r.source_text or f"[{r.dropped}]", r.translated_text,
+                      f"{r.audio_s:.1f}s", f"{r.stt_s:.2f}s", f"{r.mt_s:.2f}s",
+                      f"{r.lag_s:.2f}s" if r.lag_s else "-")
+    console.print(table)
+    console.print(f"lag p50 [bold]{stats['lag_p50']:.2f}s[/bold] · p90 {stats['lag_p90']:.2f}s · "
+                  f"stt p50 {stats['stt_p50']:.2f}s · mt p50 {stats['mt_p50']:.2f}s · "
+                  f"wall {wall:.1f}s · peak GPU {stats['vram']['gpu_peak_mb']} MB")
+    if args.json:
+        Path(args.json).write_text(json.dumps({"results": [r.row() for r in results], "stats": stats},
+                                              indent=2, default=str), encoding="utf-8")
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     from .server import serve
 
@@ -250,6 +289,12 @@ def cmd_meet(args: argparse.Namespace) -> int:
     duplex.warm()
     console.print(f"[bold]meeting mode[/bold] {language_name(args.a)} ↔ {language_name(args.b)} · "
                   f"speak into {args.mic or 'default mic'} · meeting hears {args.cable or 'NOTHING (pass --cable)'}")
+    if args.dry_run:
+        report = duplex.engines.budget.report()
+        console.print(f"[green]dry run[/green] resident={report['resident']} "
+                      f"own={report['resident_mb']} MB of {report['ceiling_mb']} MB ceiling")
+        console.print("both directions share one recogniser and one translator; only the voices differ (CPU)")
+        return 0
     try:
         duplex.run()
     except KeyboardInterrupt:
@@ -304,6 +349,15 @@ def build_parser() -> argparse.ArgumentParser:
     bench.add_argument("--json", default=None)
     bench.set_defaults(func=cmd_bench)
 
+    simulate = sub.add_parser("simulate", help="push a wav through the live pipeline and measure lag")
+    common(simulate)
+    simulate.add_argument("path")
+    simulate.add_argument("--no-speak", action="store_true")
+    simulate.add_argument("--no-partials", action="store_true")
+    simulate.add_argument("--fast", action="store_true", help="do not pace to wall clock (throughput only)")
+    simulate.add_argument("--json", default=None)
+    simulate.set_defaults(func=cmd_simulate)
+
     serve_cmd = sub.add_parser("serve", help="local web UI with live captions")
     common(serve_cmd)
     serve_cmd.add_argument("--host", default="127.0.0.1")
@@ -320,6 +374,7 @@ def build_parser() -> argparse.ArgumentParser:
     meet.add_argument("--cable", default=None, help="virtual cable the meeting listens to (VB-Cable)")
     meet.add_argument("--headphones", default=None, help="where you hear the inbound translation")
     meet.add_argument("--captions-only", action="store_true", help="do not speak the inbound direction")
+    meet.add_argument("--dry-run", action="store_true", help="load both directions, print the VRAM plan, exit")
     meet.add_argument("--glossary", default=None)
     meet.add_argument("--vram-ceiling", type=int, default=0)
     meet.set_defaults(func=cmd_meet)

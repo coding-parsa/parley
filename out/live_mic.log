@@ -1,0 +1,6 @@
+model stt: ~376 MB VRAM, loaded in 5.89s
+model mt: ~544 MB VRAM, loaded in 7.13s
+ready profile=balanced stt=whisper-turbo mt=nllb-600m tts=de_DE-thorsten-high 
+ceiling=5600MB
+interpreting English → German from device None
+listening — Ctrl+C to stop

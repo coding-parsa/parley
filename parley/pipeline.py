@@ -25,6 +25,7 @@ from .audio import AudioSource, Speaker, read_wav, write_wav
 from .config import Config, language_name
 from .mt import Glossary, IdentityMt, NllbMt
 from .stt import Committer, LanguageGate, WhisperStt
+from .text import split_sentences
 from .tts import PiperTts, split_for_speech
 from .vad import SR, Segmenter, Utterance, segment_file
 from .vram import Budget, GpuSampler, VramError
@@ -63,6 +64,8 @@ class SegmentResult:
     dropped: str = ""
     partial: bool = False
     audio_path: str = ""
+    t_end_wall: float = 0.0       # wall clock when the utterance ended
+    t_start_wall: float = 0.0
 
     def row(self) -> dict[str, object]:
         return asdict(self)
@@ -83,13 +86,19 @@ class Interpreter:
         self.gate = LanguageGate({cfg.source}, cfg.min_lang_prob, cfg.strict_language)
         self.results: list[SegmentResult] = []
         self._lock = threading.Lock()
-        self._jobs: "queue.Queue[tuple]" = queue.Queue()
+        self._jobs: "queue.PriorityQueue[tuple]" = queue.PriorityQueue()
+        self._job_seq = 0
         self._out: "queue.Queue[tuple]" = queue.Queue()
         self._worker: threading.Thread | None = None
         self._speaker_thread: threading.Thread | None = None
         self._stop = threading.Event()
-        self._committer = Committer(cfg.min_commit_chars)
+        self._committer = Committer(cfg.min_commit_chars,
+                                    require_agreement=(cfg.commit_mode != "eager"))
         self._utt_index = 0
+        self._utt_key: float | None = None
+        self._utt_pieces: list[str] = []
+        self._utt_lang = ""
+        self._first_audio_wall: dict[int, float] = {}
 
     # -- plumbing ------------------------------------------------------------
     def _log(self, message: str) -> None:
@@ -118,6 +127,7 @@ class Interpreter:
                 if model is None:
                     continue
                 try:
+                    self.budget.ensure_free(name, getattr(model, "estimated_mb", 0))
                     self.budget.admit(name, getattr(model, "estimated_mb", 0), unload=model.unload)
                     self.budget.measure(name, model.load)
                 except VramError as exc:
@@ -146,63 +156,45 @@ class Interpreter:
         for name in ("tts", "mt", "stt"):
             self.budget.release(name)
 
-    # -- one chunk: STT → gate → MT ------------------------------------------
-    def _decode(self, audio: np.ndarray, final: bool, utt_end: float) -> str:
-        """Run STT + gate + commit; return newly committed source text."""
-        assert self.stt is not None and self.mt is not None
+    # -- one chunk: STT → gate → commit --------------------------------------
+    def _decode(self, audio: np.ndarray, final: bool) -> tuple[str, str]:
+        """Run STT + gate + commit; return (full transcript, newly committed text).
+
+        Partials decode greedily (beam 1): they are speculative, only their agreed
+        prefix is ever spoken, and the seconds they save are the seconds the listener
+        waits.
+        """
+        assert self.stt is not None
         lang, prob = self.stt.detect(audio)
         ok, why = self.gate.check(lang, prob)
         if not ok:
             self._emit({"type": "rejected", "language": lang, "prob": round(prob, 2), "reason": why})
-            return ""
-        transcript = self.stt.transcribe(audio, language=lang if prob >= 0.5 else self.cfg.source)
+            return "", ""
+        self._utt_lang = lang
+        transcript = self.stt.transcribe(audio, language=lang if prob >= 0.5 else self.cfg.source,
+                                         beam_size=None if final else 1)
         if not transcript.text:
-            return ""
+            return "", ""
         committed = self._committer.update(transcript.text, final=final)
-        if not committed:
-            self._emit({"type": "partial", "text": transcript.text, "lang": transcript.language})
-            return ""
-        return committed
+        return transcript.text, committed
 
     def _translate(self, text: str) -> tuple[str, float]:
+        """Translate sentence by sentence.
+
+        NLLB returns only the last sentence of a multi-sentence input (measured),
+        so the source is always split first — which also gives the TTS stage
+        clause-sized units to speak as they arrive.
+        """
         assert self.mt is not None
+        prepared = self.glossary.inject(text)
+        sentences = split_sentences(prepared)
         started = time.perf_counter()
-        translated = self.mt.translate(text, self.cfg.source, self.cfg.target)
+        if len(sentences) <= 1:
+            translated = self.mt.translate(prepared, self.cfg.source, self.cfg.target)
+        else:
+            translated = " ".join(self.mt.translate_many(sentences, self.cfg.source, self.cfg.target))
         elapsed = time.perf_counter() - started
-        translated = self.glossary.repair(text, translated)
-        return translated, elapsed
-
-    # -- utterance handling --------------------------------------------------
-    def _handle_utterance(self, utt: Utterance, t_end: float) -> SegmentResult:
-        assert self.stt is not None
-        lang, prob = self.stt.detect(utt.audio)
-        ok, why = self.gate.check(lang, prob)
-        result = SegmentResult(index=self._utt_index, src_lang=lang, lang_prob=prob,
-                               audio_s=utt.seconds)
-        self._utt_index += 1
-        if not ok:
-            result.dropped = why
-            self._emit({"type": "rejected", "language": lang, "prob": round(prob, 2), "reason": why})
-            return result
-
-        self._committer.reset()
-        started = time.perf_counter()
-        transcript = self.stt.transcribe(utt.audio, language=lang if prob >= 0.5 else self.cfg.source)
-        result.stt_s = time.perf_counter() - started
-        if not transcript.text:
-            result.dropped = "no speech recognised"
-            return result
-
-        text = transcript.text
-        result.source_text = text
-        translated, mt_s = self._translate(text)
-        result.translated_text = translated
-        result.mt_s = mt_s
-        result.lag_s = self._speech_to_output(utt, t_end)
-        return result
-
-    def _speech_to_output(self, utt: Utterance, t_end: float) -> float:
-        return max(0.0, time.time() - t_end)
+        return self.glossary.repair(text, translated), elapsed
 
     # -- workers -------------------------------------------------------------
     def _start_workers(self, speaker: Speaker | None) -> None:
@@ -214,39 +206,79 @@ class Interpreter:
 
     def _work_loop(self) -> None:
         while not self._stop.is_set():
-            job = self._jobs.get()
+            entry = self._jobs.get()
+            if entry is None:
+                break
+            _, _, job = entry
             if job is None:
                 break
             kind = job[0]
             try:
-                if kind == "final":
-                    _, utt, t_end = job
-                    self._committer.reset()
-                    result = self._handle_utterance(utt, t_end)
-                    if result.translated_text:
-                        self._out.put(("speak", result.translated_text, result.index))
-                    with self._lock:
-                        self.results.append(result)
-                    self._emit({"type": "segment", **result.row()})
-                elif kind == "partial":
-                    _, audio, t_end = job
-                    started = time.perf_counter()
-                    committed = self._decode(audio, final=False, utt_end=t_end)
+                if kind == "partial":
+                    _, audio, key, t_end = job
+                    self._begin(key, t_end)
+                    transcript_text, committed = self._decode(audio, final=False)
+                    if transcript_text and not committed:
+                        self._emit({"type": "partial", "text": transcript_text,
+                                    "audio_s": round(len(audio) / SR, 2)})
+                    if committed:
+                        started = time.perf_counter()
+                        translated, _mt_s = self._translate(committed)
+                        self._utt_pieces.append(translated)
+                        self._out.put(("speak", translated, self._utt_index, False))
+                        self._emit({"type": "partial_commit", "source": committed,
+                                    "translated": translated,
+                                    "latency_s": round(time.perf_counter() - started, 2)})
+                elif kind == "final":
+                    _, utt, key, t_end = job
+                    self._begin(key, t_end)
+                    t0 = time.perf_counter()
+                    transcript_text, committed = self._decode(utt.audio, final=True)
+                    stt_s = time.perf_counter() - t0
+                    translated = ""
+                    mt_s = 0.0
                     if committed:
                         translated, mt_s = self._translate(committed)
-                        latency = time.perf_counter() - started
-                        self._out.put(("speak", translated, None))
-                        self._emit({"type": "partial_commit", "source": committed,
-                                    "translated": translated, "latency_s": round(latency, 2)})
+                        self._utt_pieces.append(translated)
+                    result = SegmentResult(
+                        index=self._utt_index, source_text=transcript_text,
+                        translated_text=" ".join(p for p in self._utt_pieces if p),
+                        src_lang=self._utt_lang,
+                        audio_s=utt.seconds, stt_s=stt_s, mt_s=mt_s,
+                        t_end_wall=t_end, t_start_wall=t_end - utt.seconds,
+                        first_out_s=self._first_out(self._utt_index, t_end - utt.seconds),
+                    )
+                    if not result.translated_text:
+                        result.dropped = "no speech recognised"
+                    if not self.cfg.speak:               # captions-only: lag ends when the text is ready
+                        result.lag_s = max(0.0, time.time() - t_end)
+                    with self._lock:
+                        self.results.append(result)
+                    self._utt_index += 1
+                    self._emit({"type": "segment", **result.row()})
+                    if translated:                       # enqueue after the row exists, so the
+                        self._out.put(("speak", translated, result.index, True))  # lag stamp can find it
             except Exception as exc:                      # noqa: BLE001 - a bad chunk must not kill the call
                 self._emit({"type": "error", "where": kind, "message": f"{type(exc).__name__}: {exc}"})
+
+    def _begin(self, key: float, t_end: float) -> None:
+        """Start a new utterance (reset commit state) or continue the current one."""
+        if getattr(self, "_utt_key", None) != key:
+            self._utt_key = key
+            self._committer.reset()
+            self._utt_pieces = []
+
+    def _enqueue_job(self, job: tuple, priority: int = 1) -> None:
+        """Finals jump ahead of partials: a partial must never delay the sentence end."""
+        self._job_seq += 1
+        self._jobs.put((priority, self._job_seq, job))
 
     def _speak_loop(self, speaker: Speaker | None) -> None:
         while not self._stop.is_set():
             item = self._out.get()
             if item is None:
                 break
-            _, text, index = item
+            _, text, index, is_final = item
             if not self.cfg.speak or self.tts is None:
                 self._emit({"type": "caption", "translated": text})
                 continue
@@ -258,18 +290,44 @@ class Interpreter:
                     chunks.append(audio)
                     if first_audio is None:
                         first_audio = time.perf_counter() - started
+                        if is_final:
+                            self._mark_output(index)
+                        else:
+                            self._note_first(index)
                     if speaker is not None:
                         speaker.enqueue(audio, rate)
                 if not chunks:
                     continue
                 self._emit({"type": "caption", "translated": clause,
                             "tts_first_audio_s": round(first_audio or 0.0, 2)})
-                if index is not None:
+                if index is not None and is_final:
                     with self._lock:
                         for result in reversed(self.results):
                             if result.index == index and not result.tts_s:
                                 result.tts_s = first_audio or 0.0
                                 break
+
+    def _note_first(self, index: int | None) -> None:
+        """Record the wall clock when this utterance's first translated audio existed."""
+        if index is None or index in self._first_audio_wall:
+            return
+        self._first_audio_wall[index] = time.time()
+
+    def _first_out(self, index: int, t_start_wall: float) -> float:
+        stamp = self._first_audio_wall.get(index)
+        return max(0.0, stamp - t_start_wall) if stamp else 0.0
+
+    def _mark_output(self, index: int | None) -> None:
+        """Stamp the moment translated audio actually reached the device."""
+        if index is None:
+            return
+        now = time.time()
+        with self._lock:
+            for result in reversed(self.results):
+                if result.index == index and not result.lag_s:
+                    result.lag_s = max(0.0, now - result.t_end_wall)
+                    result.first_out_s = max(0.0, now - result.t_start_wall)
+                    break
 
     # -- public entry points -------------------------------------------------
     def run_live(self, source: AudioSource, speaker: Speaker | None = None,
@@ -293,20 +351,19 @@ class Interpreter:
                         break
                     now = time.time()
                     for utt in segmenter.push(frame, now=now):
-                        self._jobs.put(("final", utt, now))
+                        self._enqueue_job(("final", utt, utt.t_start, now), priority=0)
                     if not partials:
                         continue
                     audio, t_start, speaking = segmenter.in_progress()
-                    if (speaking and len(audio) / SR >= 1.2
+                    if (speaking and len(audio) / SR >= 1.0
                             and (now - last_partial) * 1000 >= self.cfg.partial_interval_ms
                             and self._jobs.empty()):
                         last_partial = now
-                        self._jobs.put(("partial", audio, now))
+                        self._enqueue_job(("partial", audio, t_start, now), priority=1)
                 for utt in segmenter.flush():
-                    self._jobs.put(("final", utt, time.time()))
+                    self._enqueue_job(("final", utt, utt.t_start, time.time()), priority=0)
         finally:
-            self._jobs.put(None)
-            self._jobs.put(None)
+            self._jobs.put((0, 0, None))
             if self._worker:
                 self._worker.join(timeout=60)
             self._out.put(None)
@@ -333,39 +390,52 @@ class Interpreter:
         if not utterances:
             self._emit({"type": "error", "where": "file", "message": "no speech found in file"})
             return results
-        # one batched MT pass keeps file mode fast without changing the live path
-        texts: list[str] = []
-        transcripts = []
+        # speech recognition per utterance (language gate included)
+        transcripts: list[tuple | None] = []
         assert self.stt is not None
         for utt in utterances:
             lang, prob = self.stt.detect(utt.audio)
             ok, why = self.gate.check(lang, prob)
             if not ok:
+                self._emit({"type": "rejected", "language": lang, "prob": round(prob, 2), "reason": why})
                 transcripts.append(None)
-                texts.append("")
                 continue
             t0 = time.perf_counter()
             transcript = self.stt.transcribe(utt.audio, language=lang if prob >= 0.5 else self.cfg.source)
             elapsed = time.perf_counter() - t0
             transcripts.append((transcript, lang, prob, elapsed))
-            texts.append(transcript.text)
 
+        # translate every sentence of every utterance in one batched pass; NLLB
+        # drops all but the last sentence of a multi-sentence input, so sentences
+        # are the unit of work here too.
+        jobs: list[tuple[int, str]] = []
+        for idx, item in enumerate(transcripts):
+            if item is None:
+                continue
+            for sentence in split_sentences(self.glossary.inject(item[0].text)):
+                if sentence.strip():
+                    jobs.append((idx, sentence))
         started = time.perf_counter()
         assert self.mt is not None
-        translated = self.mt.translate_many([t for t in texts], self.cfg.source, self.cfg.target)
+        pieces = self.mt.translate_many([s for _, s in jobs], self.cfg.source, self.cfg.target)
         batch_s = time.perf_counter() - started
+        per_sentence = batch_s / max(1, len(jobs))
+        assembled: dict[int, list[str]] = {}
+        for (idx, _), piece in zip(jobs, pieces):
+            assembled.setdefault(idx, []).append(piece)
 
-        for i, (utt, item, tgt_text) in enumerate(zip(utterances, transcripts, translated)):
+        for i, (utt, item) in enumerate(zip(utterances, transcripts)):
             if item is None:
                 results.append(SegmentResult(index=i, audio_s=utt.seconds,
                                              dropped="language outside the pair"))
                 continue
             transcript, lang, prob, elapsed = item
+            joined = " ".join(assembled.get(i, []))
             result = SegmentResult(
                 index=i, source_text=transcript.text,
-                translated_text=self.glossary.repair(transcript.text, tgt_text),
+                translated_text=self.glossary.repair(transcript.text, joined),
                 src_lang=lang, lang_prob=prob, audio_s=utt.seconds, stt_s=elapsed,
-                mt_s=batch_s / max(1, len([t for t in texts if t])),
+                mt_s=per_sentence * max(1, len(assembled.get(i, []))),
             )
             if self.cfg.speak and self.tts is not None and out_dir is not None and result.translated_text:
                 t0 = time.perf_counter()
@@ -388,7 +458,12 @@ class Interpreter:
     def stats(self) -> dict[str, object]:
         with self._lock:
             rows = [r for r in self.results if r.translated_text]
+            for row in rows:                      # first audio may have arrived after the row was built
+                stamp = self._first_out(row.index, row.t_start_wall)
+                if stamp:
+                    row.first_out_s = stamp
         lags = sorted(r.lag_s for r in rows)
+        firsts = sorted(r.first_out_s for r in rows if r.first_out_s)
         stt = sorted(r.stt_s for r in rows)
         mt = sorted(r.mt_s for r in rows)
 
@@ -404,6 +479,7 @@ class Interpreter:
             "dropped": len([r for r in self.results if r.dropped]),
             "lag_p50": pct(lags, 0.5),
             "lag_p90": pct(lags, 0.9),
+            "first_out_p50": pct(firsts, 0.5),
             "stt_p50": pct(stt, 0.5),
             "mt_p50": pct(mt, 0.5),
             "vram": self.budget.report(),

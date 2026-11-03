@@ -39,6 +39,7 @@ class Resident:
     loaded_at: float = field(default_factory=time.time)
     touched_at: float = field(default_factory=time.time)
     pinned: bool = False
+    measured: bool = False
 
 
 def gpu_used_mb() -> int | None:
@@ -58,6 +59,32 @@ def gpu_used_mb() -> int | None:
         return int(out.stdout.strip().splitlines()[0])
     except (ValueError, IndexError):
         return None
+
+
+def gpu_total_mb() -> int | None:
+    if not _NVIDIA_SMI:
+        return None
+    try:
+        out = subprocess.run(
+            [_NVIDIA_SMI, "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return int(out.stdout.strip().splitlines()[0]) if out.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def gpu_free_mb() -> int | None:
+    """Free memory on the card, or None when it cannot be queried.
+
+    Other applications are not parley's to manage, but a model that does not fit
+    in what is *actually* free will fail inside CUDA with an unhelpful error, so
+    this is checked before every load.
+    """
+    used, total = gpu_used_mb(), gpu_total_mb()
+    if used is None or total is None:
+        return None
+    return max(0, total - used)
 
 
 def gpu_name() -> str | None:
@@ -157,15 +184,36 @@ class Budget:
             self._evict(key)
 
     # -- measurement ---------------------------------------------------------
+    def ensure_free(self, key: str, estimate_mb: int, margin_mb: int = 250) -> None:
+        """Fail early, with advice, when the card itself has no room left."""
+        free = gpu_free_mb()
+        if free is None or estimate_mb == 0:
+            return
+        if free < estimate_mb + margin_mb:
+            raise VramError(
+                f"only {free} MB free on the GPU, but {key} needs ~{estimate_mb} MB (+{margin_mb} MB "
+                f"headroom). Close the other GPU apps, or use --profile balanced / --profile fast.")
+
     def measure(self, key: str, load: Callable[[], None]) -> None:
-        """Run ``load`` and correct ``key``'s footprint with the observed GPU delta."""
+        """Run ``load`` and correct ``key``'s footprint with the observed GPU delta.
+
+        Windows WDDM reports ``[N/A]`` for per-process memory, so the only figure
+        available is whole-card usage before and after. That is noisy when other
+        applications load models at the same moment, so the delta is only trusted
+        when it is plausible (between a fifth and three times the estimate);
+        otherwise the estimate stands and the run still reports the *peak card*
+        usage measured by :class:`GpuSampler`.
+        """
         before = gpu_used_mb() or 0
         load()
         after = gpu_used_mb() or 0
+        delta = after - before
         with self._lock:
             entry = self._resident.get(key)
-            if entry is not None and after > before:
-                entry.mb = max(1, after - before)
+            if entry is not None and entry.mb > 0:
+                if 0.2 * entry.mb <= delta <= 3 * entry.mb:
+                    entry.mb = max(1, delta)
+                    entry.measured = True
                 self.peak_own_mb = max(self.peak_own_mb, self.resident_mb)
             self.peak_gpu_mb = max(self.peak_gpu_mb, after)
 

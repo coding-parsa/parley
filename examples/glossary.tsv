@@ -1,8 +1,17 @@
-# parley glossary — tab-separated: source term <TAB> approved target <TAB> bad variants (;)
-# Terms are matched case-insensitively in the source transcript.
-# Approved terms are checked for presence in the translation; variants are replaced.
-deployment	Bereitstellung	das Geld;der Einsatz;die Einsatz
-budget	Budget	der Budget;das Budgets
-financial report	Finanzbericht	der Geldbericht;das Geld
-release	Veröffentlichung	die Freigabe;das Release
-migration	Migration	der Migration
+# parley glossary — tab-separated
+#   source term <TAB> approved target <TAB> bad variants (; separated) <TAB> mode
+# mode: repair (default, post-edit) | inject (put the term into the source) | both
+#
+# Repair is safe: it only touches renderings you already know are wrong.
+# Inject is for names and product words that must appear verbatim
+# ("Bereitstellungsplan"), and it can cost a grammatical gender elsewhere —
+# which is why it is opt-in per term.
+deployment schedule	Bereitstellungsplan	Einsatzplan;Einsatzplanung	repair
+deployment	Bereitstellung	Einsatz	repair
+budget	Budget	Haushalt	repair
+financial report	Finanzbericht	Geldbericht	repair
+release	Veröffentlichung	Freigabe	repair
+migration	Migration	Umsiedlung	repair
+quarter	Quartal	Vierteljahr	repair
+demo	Demo	Vorführung;Demonstration	repair
+parley	parley	Parlament	both
