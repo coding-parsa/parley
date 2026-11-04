@@ -12,6 +12,7 @@ subscribe to.
 
 from __future__ import annotations
 
+import math
 import queue
 import threading
 import time
@@ -418,6 +419,9 @@ class Interpreter:
             block_ms=self.cfg.block_ms,
         )
         last_partial = 0.0
+        last_level = 0.0
+        quiet_s = 0.0
+        warned_silent = False
         self._emit({"type": "listening"})
         try:
             with GpuSampler(self.budget):
@@ -425,6 +429,18 @@ class Interpreter:
                     if stop.is_set():
                         break
                     now = time.time()
+                    # A dead microphone is indistinguishable from a quiet room unless the
+                    # level is measured and reported: "listening" with silence forever is
+                    # exactly what made the app look broken.
+                    if now - last_level >= 0.25:
+                        last_level = now
+                        rms = float(np.sqrt(np.mean(np.square(frame)) + 1e-12))
+                        db = 20 * math.log10(max(rms, 1e-7))
+                        self._emit({"type": "level", "db": round(db, 1)})
+                        quiet_s = quiet_s + 0.25 if db < -60 else 0.0
+                        if quiet_s > 4.0 and not warned_silent:
+                            warned_silent = True
+                            self._emit({"type": "silent"})
                     for utt in segmenter.push(frame, now=now):
                         self._enqueue_job(("final", utt, utt.t_start, now), priority=0)
                     if not partials:

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.3 — you can see it hearing you
+
+Live interpretation works (verified: the app turned "This is a test… I spoke and I can
+hear everything" into German as it was spoken), but the window gave no evidence of it:
+the footer showed `–` for lag, speech and translate during a session, and a quiet or
+muted microphone looked exactly like a stuck application.
+
+- **Live input meter** in the footer: `▃ -31 dB`, green above -45 dB, amber to
+  -60 dB, red below. It answers "is it hearing me?" without asking anyone.
+- **Silence warning**: four seconds under -60 dB while listening shows
+  "the microphone is delivering silence — check the Windows input level, or pick
+  another microphone in Setup".
+- **Stats update per utterance** instead of only at the end of a session.
+
 ## 0.3.2 — Start actually starts
 
 The app appeared to hang on Start and then stick on "stopping…" forever.

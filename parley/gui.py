@@ -264,8 +264,8 @@ class ParleyApp(tk.Tk):
         bar = tk.Frame(strip, bg=BG)
         bar.pack(fill="x", padx=PAD, pady=14)
         self.stat_labels: dict[str, tk.Label] = {}
-        for index, (key, label) in enumerate((("lag", "lag p50"), ("stt", "speech"), ("mt", "translate"),
-                                              ("vram", "vram"), ("models", "models"))):
+        for index, (key, label) in enumerate((("mic", "mic"), ("lag", "lag p50"), ("stt", "speech"),
+                                              ("mt", "translate"), ("vram", "vram"), ("models", "models"))):
             cell = tk.Frame(bar, bg=BG)
             cell.pack(side="left", padx=(0 if index == 0 else 34, 0))
             tk.Label(cell, text=label.upper(), bg=BG, fg="#556781", font=(UI, 7, "bold")).pack(anchor="w")
@@ -746,6 +746,7 @@ class ParleyApp(tk.Tk):
         self.running = False
         self._waiting_for_stop = False
         self._stop_deadline = 0.0
+        self.stat_labels["mic"].configure(text="–", fg="#9aabc2")
         self.start_button.set_text("Start")
         self.start_button.set_kind("primary")
         self.toolbar_hint.configure(text="")
@@ -824,6 +825,16 @@ class ParleyApp(tk.Tk):
             self.events.put({"type": "download_done", "ok": False, "message": f"{type(exc).__name__}: {exc}"})
 
     # -- event pump ----------------------------------------------------------
+    def _show_level(self, db: float | None) -> None:
+        """Live input level: the answer to 'is it even hearing me?'."""
+        if db is None:
+            return
+        db = float(db)
+        colour = OK if db > -45 else (WARN if db > -60 else ERR)
+        bars = "▁▂▃▄▅▆▇█"
+        filled = max(0, min(8, int((db + 60) / 6)))
+        self.stat_labels["mic"].configure(text=f"{bars[filled] if filled else '·'} {db:.0f} dB", fg=colour)
+
     def _apply_stats(self, stats: dict) -> None:
         def fmt(value: float) -> str:
             return f"{value:.2f}s" if value else "–"
@@ -868,6 +879,14 @@ class ParleyApp(tk.Tk):
             self.toolbar_hint.configure(text=event.get("message", "")[:120])
         elif kind == "segment":
             self.add_segment(event)
+            if self.interpreter is not None:
+                self._apply_stats(self.interpreter.stats())
+        elif kind == "level":
+            self._show_level(event.get("db"))
+        elif kind == "silent":
+            self.hint_label.configure(
+                text="the microphone is delivering silence — check the Windows input level, "
+                     "or pick another microphone in Setup")
         elif kind == "partial_commit":
             self._clear_placeholder()
             self._append(self.src_text, event.get("source", "") + "\n")
