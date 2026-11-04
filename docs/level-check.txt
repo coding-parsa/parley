@@ -1,0 +1,2 @@
+device 16000 per-second peak: [0.0609]
+MAX PEAK 0.0609

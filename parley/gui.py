@@ -191,7 +191,10 @@ class ParleyApp(tk.Tk):
         self.stop_event = threading.Event()
         self.worker: threading.Thread | None = None
         self.interpreter: Interpreter | None = None
+        self._cfg_key: tuple[str, str, str] | None = None
         self.running = False
+        self._waiting_for_stop = False
+        self._stop_deadline = 0.0
         self.page = "live"
         self._placeholder = True
 
@@ -206,6 +209,8 @@ class ParleyApp(tk.Tk):
         self.bind("<Control-d>", lambda _e: self.run_demo())
         self.after(60, self._darken_titlebar)
         self.after(90, self._pump)
+        if os.environ.get("PARLEY_AUTODEMO"):
+            self.after(1200, self.run_demo)
 
     # -- chrome --------------------------------------------------------------
     def _darken_titlebar(self) -> None:
@@ -259,8 +264,8 @@ class ParleyApp(tk.Tk):
         bar = tk.Frame(strip, bg=BG)
         bar.pack(fill="x", padx=PAD, pady=14)
         self.stat_labels: dict[str, tk.Label] = {}
-        for index, (key, label) in enumerate((("lag", "lag p50"), ("stt", "speech"), ("mt", "translate"),
-                                              ("vram", "vram"), ("models", "models"))):
+        for index, (key, label) in enumerate((("mic", "mic"), ("lag", "lag p50"), ("stt", "speech"),
+                                              ("mt", "translate"), ("vram", "vram"), ("models", "models"))):
             cell = tk.Frame(bar, bg=BG)
             cell.pack(side="left", padx=(0 if index == 0 else 34, 0))
             tk.Label(cell, text=label.upper(), bg=BG, fg="#556781", font=(UI, 7, "bold")).pack(anchor="w")
@@ -652,21 +657,57 @@ class ParleyApp(tk.Tk):
         self.worker = threading.Thread(target=self._run_pipeline, daemon=True)
         self.worker.start()
 
+    def _open_input(self, cfg, loopback: bool):
+        """Open the chosen microphone, but never let one bad device end the session.
+
+        Picking a device that the driver refuses (Stereo Mix on this laptop rejects
+        every rate with PaErrorCode -9996) used to mean a dead Start button and a raw
+        PortAudio error. Fall back to the default input and say so.
+        """
+        try:
+            return open_source(cfg.input_device, loopback=loopback, block_ms=cfg.block_ms)
+        except SystemExit as exc:
+            if not cfg.input_device:
+                raise
+            self.events.put({"type": "status",
+                             "text": f"that microphone refused to open ({exc}); using the default one"})
+            return open_source("", loopback=loopback, block_ms=cfg.block_ms)
+
+    def _open_output(self, cfg) -> Speaker:
+        try:
+            speaker = Speaker(cfg.output_device)
+            speaker.open()
+        except Exception as exc:                       # noqa: BLE001
+            self.events.put({"type": "status",
+                             "text": f"that output device refused to open ({exc}); using the default one"})
+            speaker = Speaker(None)
+            speaker.open()
+        return speaker
+
     def _run_pipeline(self) -> None:
         cfg = self.build_config()
         loopback = self.settings.use_system_audio
+        # Models are per language pair and per profile: switching either in Setup has to
+        # rebuild the interpreter, or the next session silently keeps the old languages.
+        key = (cfg.source, cfg.target, cfg.profile)
         try:
             self.events.put({"type": "status", "text": "loading models…"})
-            interpreter = Interpreter(cfg, on_event=self.events.put)
-            self.interpreter = interpreter
-            interpreter.warm()
-            source = open_source(cfg.input_device, loopback=loopback, block_ms=cfg.block_ms)
-            speaker = Speaker(cfg.output_device) if cfg.speak else None
+            if self.interpreter is not None and self._cfg_key != key:
+                self.interpreter.close()
+                self.interpreter = None
+            if self.interpreter is None:
+                self.interpreter = Interpreter(cfg, on_event=self.events.put)
+                self.interpreter.warm()
+                self._cfg_key = key
+            else:
+                self.interpreter.cfg.speak = cfg.speak
+                self.interpreter.cfg.glossary_path = cfg.glossary_path
+            self.interpreter.reset_session()
+            source = self._open_input(cfg, loopback)
+            speaker = self._open_output(cfg) if cfg.speak else None
             with source:
-                if speaker is not None:
-                    speaker.open()
                 try:
-                    interpreter.run_live(source, speaker, self.stop_event, partials=cfg.speak)
+                    self.interpreter.run_live(source, speaker, self.stop_event, partials=cfg.speak)
                 finally:
                     if speaker is not None:
                         speaker.close()
@@ -681,9 +722,31 @@ class ParleyApp(tk.Tk):
         if self.running:
             self.stop_event.set()
             self._set_state("stopping…", WARN)
+            self._stop_deadline = time.time() + 5.0
+            self._waiting_for_stop = True
+
+    def _force_stop(self) -> None:
+        """Never leave the window stuck on “stopping…”.
+
+        A decode or a device call can outlive the stop request; the UI must not be
+        hostage to it, or the app looks dead until it is killed.
+        """
+        self._waiting_for_stop = False
+        self._stop_deadline = 0.0
+        self.running = False
+        self.start_button.set_text("Start")
+        self.start_button.set_kind("primary")
+        self.start_button.set_enabled(True)
+        self.toolbar_hint.configure(text="")
+        if self.interpreter is not None:
+            self._apply_stats(self.interpreter.stats())
+        self._set_state("ready", OK)
 
     def _stopped(self) -> None:
         self.running = False
+        self._waiting_for_stop = False
+        self._stop_deadline = 0.0
+        self.stat_labels["mic"].configure(text="–", fg="#9aabc2")
         self.start_button.set_text("Start")
         self.start_button.set_kind("primary")
         self.toolbar_hint.configure(text="")
@@ -762,6 +825,16 @@ class ParleyApp(tk.Tk):
             self.events.put({"type": "download_done", "ok": False, "message": f"{type(exc).__name__}: {exc}"})
 
     # -- event pump ----------------------------------------------------------
+    def _show_level(self, db: float | None) -> None:
+        """Live input level: the answer to 'is it even hearing me?'."""
+        if db is None:
+            return
+        db = float(db)
+        colour = OK if db > -45 else (WARN if db > -60 else ERR)
+        bars = "▁▂▃▄▅▆▇█"
+        filled = max(0, min(8, int((db + 60) / 6)))
+        self.stat_labels["mic"].configure(text=f"{bars[filled] if filled else '·'} {db:.0f} dB", fg=colour)
+
     def _apply_stats(self, stats: dict) -> None:
         def fmt(value: float) -> str:
             return f"{value:.2f}s" if value else "–"
@@ -781,11 +854,15 @@ class ParleyApp(tk.Tk):
                 self._handle_event(self.events.get_nowait())
         except queue.Empty:
             pass
+        if self._waiting_for_stop and self._stop_deadline and time.time() > self._stop_deadline:
+            self._force_stop()
         self.after(90, self._pump)
 
     def _handle_event(self, event: dict) -> None:
         kind = event.get("type")
-        if kind == "model":
+        if kind == "status":
+            self.toolbar_hint.configure(text=event.get("text", ""))
+        elif kind == "model":
             self.toolbar_hint.configure(text=f"{event['name']} · {event.get('vram_mb', 0)} MB")
         elif kind == "ready":
             self._set_state("listening", OK)
@@ -802,6 +879,14 @@ class ParleyApp(tk.Tk):
             self.toolbar_hint.configure(text=event.get("message", "")[:120])
         elif kind == "segment":
             self.add_segment(event)
+            if self.interpreter is not None:
+                self._apply_stats(self.interpreter.stats())
+        elif kind == "level":
+            self._show_level(event.get("db"))
+        elif kind == "silent":
+            self.hint_label.configure(
+                text="the microphone is delivering silence — check the Windows input level, "
+                     "or pick another microphone in Setup")
         elif kind == "partial_commit":
             self._clear_placeholder()
             self._append(self.src_text, event.get("source", "") + "\n")
@@ -837,18 +922,31 @@ class ParleyApp(tk.Tk):
                 self._show_notice(f"Download failed: {event.get('message', '')}")
 
     def _play(self, paths: list[str]) -> None:
-        """Play the demo audio with the stdlib — no extra audio dependency for this."""
+        """Play the demo audio through the same Speaker the live mode uses.
+
+        Playback failures must be visible: swallowing them produced an app that showed
+        perfect captions and made no sound at all.
+        """
         if not paths:
             return
 
         def run() -> None:
-            try:
-                import winsound
+            from .audio import Speaker, read_wav
 
+            speaker = Speaker(self.settings.output_device)
+            try:
+                speaker.open()
                 for path in paths:
-                    winsound.PlaySound(path, winsound.SND_FILENAME)
-            except Exception:                      # noqa: BLE001
-                pass
+                    audio, rate = read_wav(path)
+                    speaker.enqueue(audio, rate)
+                speaker.flush(timeout=120)
+                if speaker.last_error is not None:
+                    raise RuntimeError(speaker.last_error)
+            except Exception as exc:                   # noqa: BLE001 - tell the user, loudly
+                self.events.put({"type": "error", "message": f"cannot play through "
+                                                             f"“{self.settings.output_device or 'default output'}”: {exc}"})
+            finally:
+                speaker.close()
 
         threading.Thread(target=run, daemon=True).start()
 
@@ -856,6 +954,8 @@ class ParleyApp(tk.Tk):
     def _on_close(self) -> None:
         try:
             self.stop_event.set()
+            if self.interpreter is not None:
+                self.interpreter.close()               # give the VRAM back before the window goes
             self._collect_settings()
             self.settings.save()
         finally:
