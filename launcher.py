@@ -36,7 +36,7 @@ def selftest() -> int:
             lines.append(traceback.format_exc())
 
     def imports():
-        import ctranslate2, faster_whisper, huggingface_hub, numpy, piper, scipy.signal  # noqa: F401
+        import ctranslate2, faster_whisper, huggingface_hub, numpy, piper  # noqa: F401
         import sentencepiece, sounddevice, soundfile, tkinter  # noqa: F401
         return "all native modules import"
 
@@ -147,9 +147,62 @@ def selftest() -> int:
     return 0 if ok else 1
 
 
+def live_check(seconds: float = 10.0) -> int:
+    """Record from the real microphone for N seconds and report what arrived.
+
+    The frozen build's live path cannot be clicked from a script, and "it works" is
+    not something to assume about audio devices: this counts frames, overflows and
+    any transcript, then writes it to the selftest log.
+    """
+    import threading
+
+    from parley.audio import open_source
+    from parley.config import Config
+    from parley.pipeline import Interpreter
+
+    cfg = Config(source="en", target="de", profile="fast", speak=False)
+    interpreter = Interpreter(cfg, on_event=lambda _e: None)
+    lines = []
+    try:
+        interpreter.warm()
+        source = open_source("", loopback=False, block_ms=cfg.block_ms)
+        stop = threading.Event()
+        threading.Timer(seconds, stop.set).start()
+        with source:
+            interpreter.run_live(source, None, stop, partials=False)
+        stats = interpreter.stats()
+        lines.append(f"device={source.samplerate} Hz · overflows={source.overflow} · "
+                     f"segments={stats['segments']} · translated={stats['translated']}")
+        for result in interpreter.results[:3]:
+            lines.append(f"  heard {result.source_text[:60]!r} → {result.translated_text[:60]!r}")
+        if stats["segments"] == 0:
+            lines.append("  (silence: no speech detected in the window — that is fine, "
+                         "but say something next time)")
+    except Exception as exc:                            # noqa: BLE001
+        lines.append(f"FAILED {type(exc).__name__}: {exc}")
+    path = log_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(time.strftime("%Y-%m-%d %H:%M:%S\n") + "LIVE CHECK\n" +
+                    "\n".join(lines) + "\n", encoding="utf-8")
+    try:
+        print("\n".join(lines))
+    except Exception:                                   # noqa: BLE001
+        pass
+    return 0
+
+
 def main() -> int:
     if "--selftest" in sys.argv:
         return selftest()
+    if "--live-test" in sys.argv:
+        seconds = 10.0
+        index = sys.argv.index("--live-test")
+        if len(sys.argv) > index + 1:
+            try:
+                seconds = float(sys.argv[index + 1])
+            except ValueError:
+                pass
+        return live_check(seconds)
     if "--demo" in sys.argv:
         os.environ["PARLEY_AUTODEMO"] = "1"
 

@@ -80,13 +80,47 @@ def resolve_default_input() -> int | None:
         return None
 
 
-def resample(audio: np.ndarray, src_sr: int, dst_sr: int = TARGET_SR) -> np.ndarray:
-    if src_sr == dst_sr or audio.size == 0:
-        return audio.astype(np.float32, copy=False)
-    from scipy.signal import resample_poly
+_FIR_CACHE: dict[tuple[int, int, int], np.ndarray] = {}
 
-    g = np.gcd(int(src_sr), int(dst_sr))
-    return resample_poly(audio.astype(np.float32), dst_sr // g, src_sr // g).astype(np.float32)
+
+def _lowpass_taps(src_sr: int, cutoff_hz: float, taps: int = 101) -> np.ndarray:
+    """Windowed-sinc low-pass, designed once per (rate, cutoff) and cached."""
+    key = (int(src_sr), int(cutoff_hz), int(taps))
+    cached = _FIR_CACHE.get(key)
+    if cached is not None:
+        return cached
+    n = np.arange(taps) - (taps - 1) / 2.0
+    fc = cutoff_hz / src_sr                       # cycles per sample
+    h = 2 * fc * np.sinc(2 * fc * n) * np.hamming(taps)
+    h /= h.sum()
+    _FIR_CACHE[key] = h.astype(np.float32)
+    return _FIR_CACHE[key]
+
+
+def resample(audio: np.ndarray, src_sr: int, dst_sr: int = TARGET_SR) -> np.ndarray:
+    """Convert to 16 kHz without touching scipy.
+
+    scipy used to be imported *here*, on the first audio block: a multi-second import
+    inside the capture loop, which made Start look dead and Stop unreachable. numpy
+    only now, and the filter is cached.
+    """
+    audio = np.asarray(audio, dtype=np.float32)
+    if src_sr == dst_sr or audio.size == 0:
+        return audio
+    if dst_sr > src_sr:                            # upsampling never happens for capture
+        times = np.arange(int(audio.size * dst_sr / src_sr)) * (src_sr / dst_sr)
+        return np.interp(times, np.arange(audio.size), audio).astype(np.float32)
+
+    if src_sr % dst_sr == 0:                       # 48k→16k, 32k→16k, 96k→16k
+        step = src_sr // dst_sr
+        taps = _lowpass_taps(src_sr, 0.45 * dst_sr, taps=8 * step + 1)
+        return np.convolve(audio, taps, mode="same")[::step].astype(np.float32)
+
+    # 44.1k→16k and friends: filter at the source rate, then take the samples we need
+    taps = _lowpass_taps(src_sr, 0.45 * dst_sr)
+    filtered = np.convolve(audio, taps, mode="same")
+    times = np.arange(int(audio.size * dst_sr / src_sr)) * (src_sr / dst_sr)
+    return np.interp(times, np.arange(audio.size), filtered).astype(np.float32)
 
 
 # --- capture ----------------------------------------------------------------------
@@ -115,16 +149,30 @@ class AudioSource:
 
     def open(self) -> "AudioSource":
         info = sd.query_devices(self.device, "input") if self.device is not None else sd.query_devices(kind="input")
-        sr = self.samplerate or int(info["default_samplerate"])
-        self.samplerate = sr
         if self.loopback:
             self._check_loopback_device(info["name"])
-        self._stream = sd.InputStream(
-            device=self.device, channels=1, samplerate=sr, dtype="float32",
-            blocksize=int(sr * self.block_ms / 1000), callback=self._callback,
-        )
-        self._stream.start()
-        return self
+        native = int(info["default_samplerate"]) or TARGET_SR
+        # Ask the driver for 16 kHz first: WASAPI resamples in the mixer, which costs
+        # nothing here and keeps the capture loop free of per-block conversion.
+        wanted = self.samplerate or TARGET_SR
+        candidates = [wanted] if wanted != native else [wanted]
+        if native not in candidates:
+            candidates.append(native)
+        last: BaseException | None = None
+        for sr in candidates:
+            try:
+                stream = sd.InputStream(
+                    device=self.device, channels=1, samplerate=sr, dtype="float32",
+                    blocksize=int(sr * self.block_ms / 1000), callback=self._callback,
+                )
+                stream.start()
+            except Exception as exc:                   # noqa: BLE001 - try the next rate
+                last = exc
+                continue
+            self._stream = stream
+            self.samplerate = sr
+            return self
+        raise SystemExit(f"cannot open {info['name']!r} for capture at {candidates} Hz: {last}")
 
     @staticmethod
     def _check_loopback_device(name: str) -> None:

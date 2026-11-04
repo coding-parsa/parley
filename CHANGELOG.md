@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.3.2 — Start actually starts
+
+The app appeared to hang on Start and then stick on "stopping…" forever.
+
+**Cause:** `resample()` imported `scipy.signal` *inside* the capture loop. The first
+audio block therefore triggered a multi-second import while holding the read path:
+no frames reached the segmenter, the device buffer overflowed, and the stop flag was
+never reached because the thread was inside the import. In the frozen build it was
+long enough to look like a dead application.
+
+- Resolution is now numpy-only: a cached windowed-sinc low-pass plus decimation
+  (`48k→16k`, `32k→16k`, `96k→16k` integer ratios; interpolated path for
+  `44.1k/22.05k→16k`). 0.5 s of audio converts in **under 2 ms**, and scipy is gone
+  from the bundle entirely.
+- Capture now asks the driver for **16 kHz directly**, so WASAPI does the conversion
+  in the mixer and the loop does none. It falls back to the device's native rate if
+  the driver refuses.
+- Stop has a 5 s watchdog: the window returns to `ready` even if a decode or a
+  device call outlives the request, instead of showing "stopping…" indefinitely.
+
+Also new: `parley.exe --live-test 10` records ten seconds from the real microphone in
+the packaged build and writes what it heard to `%LOCALAPPDATA%\parley\selftest.log` —
+the check that would have caught this.
+
 ## 0.3.1 — the build that actually speaks
 
 Four bugs stood between 0.3.0 and a usable app. All four are fixed and verified

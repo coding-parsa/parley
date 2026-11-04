@@ -205,6 +205,7 @@ hear the whole path without a microphone. Crashes land in
 | Captions appear, no sound | output device wrong, or another app holds it in exclusive mode | Setup → Output, then `--selftest` step `playback` |
 | `language X is outside the ['en'] pair` | the detector heard a language you did not configure | Setup → languages; the gate is advisory, so compliant speech still goes through |
 | `CUDA out of memory` on Start | another app (browser, game) holds the card | close it, or pick the `fast` profile |
+| `Invalid device [PaErrorCode -9996]` | the chosen device rejects every sample rate (common for Stereo Mix) | fixed in 0.3.2 — the app falls back to the default device and says so |
 | Second Start errors | fixed in 0.3.1 — model memory is reused, not reloaded | — |
 
 ## Credits
