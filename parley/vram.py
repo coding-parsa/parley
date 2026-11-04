@@ -16,6 +16,7 @@ and behaves the same on Windows and Linux.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import threading
@@ -25,6 +26,12 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 _NVIDIA_SMI = shutil.which("nvidia-smi")
+
+# A windowed app must never flash a console: every subprocess hides its window.
+_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+
+_CACHE_TTL_S = 1.5
+_cache: dict[str, tuple[float, int | None]] = {}
 
 
 class VramError(RuntimeError):
@@ -42,36 +49,34 @@ class Resident:
     measured: bool = False
 
 
+def _query(field: str) -> int | None:
+    """Cached `nvidia-smi` read. Polling this in a loop used to flicker a console window."""
+    now = time.time()
+    cached = _cache.get(field)
+    if cached and now - cached[0] < _CACHE_TTL_S:
+        return cached[1]
+    value: int | None = None
+    if _NVIDIA_SMI:
+        try:
+            out = subprocess.run(
+                [_NVIDIA_SMI, f"--query-gpu=memory.{field}", "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=5, creationflags=_NO_WINDOW,
+            )
+            if out.returncode == 0:
+                value = int(out.stdout.strip().splitlines()[0])
+        except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+            value = None
+    _cache[field] = (now, value)
+    return value
+
+
 def gpu_used_mb() -> int | None:
     """Whole-card usage in MiB, or None when the card cannot be queried."""
-    if not _NVIDIA_SMI:
-        return None
-    try:
-        out = subprocess.run(
-            [_NVIDIA_SMI, "--query-gpu=memory.used", "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=5,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if out.returncode != 0:
-        return None
-    try:
-        return int(out.stdout.strip().splitlines()[0])
-    except (ValueError, IndexError):
-        return None
+    return _query("used")
 
 
 def gpu_total_mb() -> int | None:
-    if not _NVIDIA_SMI:
-        return None
-    try:
-        out = subprocess.run(
-            [_NVIDIA_SMI, "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=5,
-        )
-        return int(out.stdout.strip().splitlines()[0]) if out.returncode == 0 else None
-    except (OSError, subprocess.SubprocessError, ValueError):
-        return None
+    return _query("total")
 
 
 def gpu_free_mb() -> int | None:
@@ -93,7 +98,7 @@ def gpu_name() -> str | None:
     try:
         out = subprocess.run(
             [_NVIDIA_SMI, "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True, text=True, timeout=5, creationflags=_NO_WINDOW,
         )
         return out.stdout.strip().splitlines()[0] if out.returncode == 0 else None
     except (OSError, subprocess.SubprocessError):

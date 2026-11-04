@@ -174,6 +174,39 @@ rather than pretending.
   terminology-heavy work) with the VRAM manager choosing one.
 - **v1.0** — Windows installer, one-click model download, demo recording.
 
+## Verifying an install
+
+A windowed `.exe` has nowhere to print, so the app checks itself and writes the
+result to `%LOCALAPPDATA%\parley\selftest.log`:
+
+```bat
+parley.exe --selftest
+```
+
+Six steps, each one a real dependency inside the *frozen* build:
+
+```
+PASS  imports        all native modules import
+PASS  audio devices  16 inputs, 15 outputs
+PASS  playback       17640 frames to device        <- sound really left the app
+PASS  phonemes       espeak data found, English phonemes correct
+PASS  models         models at C:\Users\...\parley\models
+PASS  translate      → German text from 3.6 s of synthesised speech
+```
+
+`parley.exe --demo` runs one translation on startup — the fastest way to see and
+hear the whole path without a microphone. Crashes land in
+`%LOCALAPPDATA%\parley\crash.log`.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| Captions appear, no sound | output device wrong, or another app holds it in exclusive mode | Setup → Output, then `--selftest` step `playback` |
+| `language X is outside the ['en'] pair` | the detector heard a language you did not configure | Setup → languages; the gate is advisory, so compliant speech still goes through |
+| `CUDA out of memory` on Start | another app (browser, game) holds the card | close it, or pick the `fast` profile |
+| Second Start errors | fixed in 0.3.1 — model memory is reused, not reloaded | — |
+
 ## Credits
 
 Whisper (OpenAI) · faster-whisper (SYSTRAN) · CTranslate2 · NLLB-200 (Meta) ·

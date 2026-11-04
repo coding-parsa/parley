@@ -168,6 +168,12 @@ class NllbMt:
         src, tgt = nllb_code(source), nllb_code(target)
         if src == tgt:
             return text
+        from .text import split_sentences
+
+        sentences = split_sentences(text)
+        if len(sentences) > 1:
+            # NLLB silently returns only the last sentence of a multi-sentence input
+            return " ".join(self.translate_many(sentences, source, target))
         tokens = self._tokens(text, src)
         t0 = time.perf_counter()
         results = self.translator.translate_batch(

@@ -152,12 +152,9 @@ class Interpreter:
             for name, model in (("stt", self.stt), ("mt", self.mt)):
                 if model is None:
                     continue
-                try:
-                    self.budget.ensure_free(name, getattr(model, "estimated_mb", 0))
-                    self.budget.admit(name, getattr(model, "estimated_mb", 0), unload=model.unload)
-                    self.budget.measure(name, model.load)
-                except VramError as exc:
-                    raise SystemExit(f"{exc}") from exc
+                self.budget.ensure_free(name, getattr(model, "estimated_mb", 0))
+                self.budget.admit(name, getattr(model, "estimated_mb", 0), unload=model.unload)
+                self.budget.measure(name, model.load)
                 self._emit({"type": "model", "name": name, "vram_mb": self.budget.snapshot().get(name, 0),
                             "load_s": round(getattr(model, "load_s", 0.0), 2)})
             if self.engines is not None:
@@ -182,6 +179,23 @@ class Interpreter:
         for name in ("tts", "mt", "stt"):
             self.budget.release(name)
 
+    def reset_session(self) -> None:
+        """Clear per-session state so the same loaded models can serve the next session.
+
+        Without this, a second Start either re-loads 1.8 GB of models on top of the
+        first session's (and runs out of VRAM) or inherits the previous transcripts.
+        """
+        with self._lock:
+            self.results.clear()
+        self._committer.reset()
+        self._utt_key = None
+        self._utt_pieces = []
+        self._first_audio_wall.clear()
+        self._utt_index = 0
+        self._stop.clear()
+        self.gate.rejected.clear()
+        self.glossary.misses.clear()
+
     # -- one chunk: STT → gate → commit --------------------------------------
     def _detect(self, audio: np.ndarray) -> tuple[str, float]:
         """Language detection, except where it cannot be trusted.
@@ -201,16 +215,28 @@ class Interpreter:
         Partials decode greedily (beam 1): they are speculative, only their agreed
         prefix is ever spoken, and the seconds they save are the seconds the listener
         waits.
+
+        The language gate is advisory, not absolute: a foreign guess is only honoured
+        when decoding the audio as the configured source produces nonsense. Whisper
+        mislabels short or accented speech often enough that a hard rejection would
+        refuse the user's own sentence — which is worse than translating it.
         """
         assert self.stt is not None
         lang, prob = self._detect(audio)
         ok, why = self.gate.check(lang, prob)
-        if not ok:
-            self._emit({"type": "rejected", "language": lang, "prob": round(prob, 2), "reason": why})
-            return "", ""
-        self._utt_lang = lang
-        transcript = self.stt.transcribe(audio, language=lang if prob >= 0.5 else self.cfg.source,
-                                         beam_size=None if final else 1)
+        beam = None if final else 1
+        if ok:
+            self._utt_lang = lang
+            transcript = self.stt.transcribe(audio, language=lang if prob >= 0.5 else self.cfg.source,
+                                             beam_size=beam)
+        else:
+            self._utt_lang = self.cfg.source
+            transcript = self.stt.transcribe(audio, language=self.cfg.source, beam_size=beam)
+            if not transcript.text or transcript.avg_logprob < -0.8:
+                self._emit({"type": "rejected", "language": lang, "prob": round(prob, 2), "reason": why})
+                return "", ""
+            self._emit({"type": "log", "message": f"detector said {lang} ({prob:.2f}) — "
+                                                  f"decoded as {self.cfg.source} anyway, and it reads fine"})
         if not transcript.text:
             return "", ""
         committed = self._committer.update(transcript.text, final=final)
@@ -320,30 +346,41 @@ class Interpreter:
             if not self.cfg.speak or self.tts is None:
                 self._emit({"type": "caption", "translated": text})
                 continue
-            for clause in split_for_speech(text):
-                started = time.perf_counter()
-                chunks = []
-                first_audio: float | None = None
-                for audio, rate in self.tts.synthesize_stream(clause):
-                    chunks.append(audio)
-                    if first_audio is None:
-                        first_audio = time.perf_counter() - started
-                        if is_final:
-                            self._mark_output(index)
-                        else:
-                            self._note_first(index)
-                    if speaker is not None:
-                        speaker.enqueue(audio, rate)
-                if not chunks:
-                    continue
-                self._emit({"type": "caption", "translated": clause,
-                            "tts_first_audio_s": round(first_audio or 0.0, 2)})
-                if index is not None and is_final:
-                    with self._lock:
-                        for result in reversed(self.results):
-                            if result.index == index and not result.tts_s:
-                                result.tts_s = first_audio or 0.0
-                                break
+            try:
+                self._speak_one(text, index, is_final, speaker)
+            except Exception as exc:                       # noqa: BLE001 - one clause must not kill the voice
+                self._emit({"type": "error", "where": "speech",
+                            "message": f"could not speak: {type(exc).__name__}: {exc}"})
+            if speaker is not None and speaker.last_error is not None:
+                self._emit({"type": "error", "where": "audio out",
+                            "message": f"the sound card refused playback: {speaker.last_error}"})
+                speaker.last_error = None
+
+    def _speak_one(self, text: str, index: int | None, is_final: bool, speaker: Speaker | None) -> None:
+        for clause in split_for_speech(text):
+            started = time.perf_counter()
+            chunks = []
+            first_audio: float | None = None
+            for audio, rate in self.tts.synthesize_stream(clause):   # type: ignore[union-attr]
+                chunks.append(audio)
+                if first_audio is None:
+                    first_audio = time.perf_counter() - started
+                    if is_final:
+                        self._mark_output(index)
+                    else:
+                        self._note_first(index)
+                if speaker is not None:
+                    speaker.enqueue(audio, rate)
+            if not chunks:
+                continue
+            self._emit({"type": "caption", "translated": clause,
+                        "tts_first_audio_s": round(first_audio or 0.0, 2)})
+            if index is not None and is_final:
+                with self._lock:
+                    for result in reversed(self.results):
+                        if result.index == index and not result.tts_s:
+                            result.tts_s = first_audio or 0.0
+                            break
 
     def _note_first(self, index: int | None) -> None:
         """Record the wall clock when this utterance's first translated audio existed."""
@@ -434,14 +471,19 @@ class Interpreter:
         for utt in utterances:
             lang, prob = self._detect(utt.audio)
             ok, why = self.gate.check(lang, prob)
-            if not ok:
-                self._emit({"type": "rejected", "language": lang, "prob": round(prob, 2), "reason": why})
-                transcripts.append(None)
-                continue
             t0 = time.perf_counter()
-            transcript = self.stt.transcribe(utt.audio, language=lang if prob >= 0.5 else self.cfg.source)
+            if ok:
+                transcript = self.stt.transcribe(utt.audio, language=lang if prob >= 0.5 else self.cfg.source)
+                used_lang = lang
+            else:
+                transcript = self.stt.transcribe(utt.audio, language=self.cfg.source)
+                used_lang = self.cfg.source
+                if not transcript.text or transcript.avg_logprob < -0.8:
+                    self._emit({"type": "rejected", "language": lang, "prob": round(prob, 2), "reason": why})
+                    transcripts.append(None)
+                    continue
             elapsed = time.perf_counter() - t0
-            transcripts.append((transcript, lang, prob, elapsed))
+            transcripts.append((transcript, used_lang, prob, elapsed))
 
         # translate every sentence of every utterance in one batched pass; NLLB
         # drops all but the last sentence of a multi-sentence input, so sentences

@@ -206,6 +206,8 @@ class ParleyApp(tk.Tk):
         self.bind("<Control-d>", lambda _e: self.run_demo())
         self.after(60, self._darken_titlebar)
         self.after(90, self._pump)
+        if os.environ.get("PARLEY_AUTODEMO"):
+            self.after(1200, self.run_demo)
 
     # -- chrome --------------------------------------------------------------
     def _darken_titlebar(self) -> None:
@@ -657,16 +659,20 @@ class ParleyApp(tk.Tk):
         loopback = self.settings.use_system_audio
         try:
             self.events.put({"type": "status", "text": "loading models…"})
-            interpreter = Interpreter(cfg, on_event=self.events.put)
-            self.interpreter = interpreter
-            interpreter.warm()
+            if self.interpreter is None:
+                self.interpreter = Interpreter(cfg, on_event=self.events.put)
+                self.interpreter.warm()
+            else:
+                self.interpreter.cfg.speak = cfg.speak
+                self.interpreter.cfg.glossary_path = cfg.glossary_path
+            self.interpreter.reset_session()
             source = open_source(cfg.input_device, loopback=loopback, block_ms=cfg.block_ms)
             speaker = Speaker(cfg.output_device) if cfg.speak else None
             with source:
                 if speaker is not None:
                     speaker.open()
                 try:
-                    interpreter.run_live(source, speaker, self.stop_event, partials=cfg.speak)
+                    self.interpreter.run_live(source, speaker, self.stop_event, partials=cfg.speak)
                 finally:
                     if speaker is not None:
                         speaker.close()
@@ -837,18 +843,31 @@ class ParleyApp(tk.Tk):
                 self._show_notice(f"Download failed: {event.get('message', '')}")
 
     def _play(self, paths: list[str]) -> None:
-        """Play the demo audio with the stdlib — no extra audio dependency for this."""
+        """Play the demo audio through the same Speaker the live mode uses.
+
+        Playback failures must be visible: swallowing them produced an app that showed
+        perfect captions and made no sound at all.
+        """
         if not paths:
             return
 
         def run() -> None:
-            try:
-                import winsound
+            from .audio import Speaker, read_wav
 
+            speaker = Speaker(self.settings.output_device)
+            try:
+                speaker.open()
                 for path in paths:
-                    winsound.PlaySound(path, winsound.SND_FILENAME)
-            except Exception:                      # noqa: BLE001
-                pass
+                    audio, rate = read_wav(path)
+                    speaker.enqueue(audio, rate)
+                speaker.flush(timeout=120)
+                if speaker.last_error is not None:
+                    raise RuntimeError(speaker.last_error)
+            except Exception as exc:                   # noqa: BLE001 - tell the user, loudly
+                self.events.put({"type": "error", "message": f"cannot play through "
+                                                             f"“{self.settings.output_device or 'default output'}”: {exc}"})
+            finally:
+                speaker.close()
 
         threading.Thread(target=run, daemon=True).start()
 
@@ -856,6 +875,8 @@ class ParleyApp(tk.Tk):
     def _on_close(self) -> None:
         try:
             self.stop_event.set()
+            if self.interpreter is not None:
+                self.interpreter.close()               # give the VRAM back before the window goes
             self._collect_settings()
             self.settings.save()
         finally:

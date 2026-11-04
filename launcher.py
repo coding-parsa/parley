@@ -59,7 +59,15 @@ def selftest() -> int:
         cfg = Config(source="en", target="de", profile="balanced", speak=True)
         interpreter = Interpreter(cfg, on_event=lambda _e: None)
         interpreter.warm()
-        tts = interpreter.tts
+
+        from parley.config import MODELS_DIR
+        from parley.tts import PiperTts
+
+        # speak the test sentence with the SOURCE voice — the interpreter's own TTS is
+        # the target-language voice, and feeding it English proves nothing
+        source_voice = MODELS_DIR / "piper" / "en_US-hfc_male-medium.onnx"
+        tts = PiperTts(source_voice)
+        tts.load()
         audio, rate = tts.synthesize("Thanks everyone for joining. The budget is ready for review.")
         seconds = len(audio) / max(rate, 1)
         if len(audio) == 0:
@@ -68,12 +76,49 @@ def selftest() -> int:
         sample_dir.mkdir(parents=True, exist_ok=True)
         sample = sample_dir / "selftest.wav"
         write_wav(sample, audio, rate)
+        from parley.audio import read_wav
+
+        back, back_rate = read_wav(sample)
+        from parley.audio import resample
+
+        detected = interpreter._detect(resample(back, back_rate, 16000))
         results = interpreter.translate_file(sample, out_dir=sample_dir)
         text = " ".join(r.translated_text for r in results).strip()
+        detail = [(round(r.audio_s, 2), r.src_lang, r.dropped) for r in results]
         if not text:
-            detail = [(r.audio_s, r.src_lang, r.dropped) for r in results] or "no utterances segmented"
-            raise RuntimeError(f"no translation produced ({seconds:.1f}s of audio); results={detail}")
-        return f"→ {text[:70]}  [{seconds:.1f}s audio]"
+            raise RuntimeError(
+                f"no translation produced · wav {len(back)/back_rate:.2f}s @ {back_rate} Hz · "
+                f"synth {seconds:.2f}s @ {rate} Hz · detected {detected} · results={detail}")
+        return f"→ {text[:60]}  [{seconds:.1f}s audio, detected {detected[0]}/{detected[1]:.2f}, " \
+               f"heard {results[0].source_text[:50]!r}]"
+
+    def phonemes():
+        """Phonemisation is where a frozen build can silently break: espeak data and
+        the voice language must both resolve, or the voice mispronounces everything."""
+        from piper.phonemize_espeak import ESPEAK_DATA_DIR, EspeakPhonemizer
+
+        phonemizer = EspeakPhonemizer()
+        sample = phonemizer.phonemize("en-us", "Thanks everyone for joining.")[0]
+        return f"{ESPEAK_DATA_DIR.exists()=} {' '.join(sample)[:90]}"
+
+    def playback():
+        import numpy as np
+
+        from parley.audio import Speaker
+
+        speaker = Speaker()
+        speaker.open()
+        t = np.arange(int(16000 * 0.4)) / 16000.0
+        tone = (0.15 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+        before = speaker.frames_written
+        speaker.enqueue(tone, 16000)
+        speaker.flush(timeout=20)
+        written = speaker.frames_written - before
+        error = speaker.last_error
+        speaker.close()
+        if written <= 0:
+            raise RuntimeError(f"nothing reached the sound card (error={error})")
+        return f"{written} frames to device {speaker.device}"
 
     def audio_devices():
         import sounddevice as sd
@@ -86,6 +131,8 @@ def selftest() -> int:
 
     step("imports", imports)
     step("audio devices", audio_devices)
+    step("playback", playback)
+    step("phonemes", phonemes)
     step("models", models)
     step("translate", translate)
 
@@ -103,6 +150,8 @@ def selftest() -> int:
 def main() -> int:
     if "--selftest" in sys.argv:
         return selftest()
+    if "--demo" in sys.argv:
+        os.environ["PARLEY_AUTODEMO"] = "1"
 
     from parley.gui import main as gui_main
 

@@ -182,70 +182,95 @@ def find_loopback_device() -> int | None:
 
 # --- playback ---------------------------------------------------------------------
 class Speaker:
-    """Queued playback with a callback so the pipeline can timestamp first audio."""
+    """Plays audio on a real device.
+
+    A blocking writer thread, not a PortAudio callback: `write()` returns when the
+    card has taken the samples, so "did it play" is measurable rather than hopeful.
+    The old callback version resampled with swapped arguments and swallowed its own
+    exceptions, which is how a translator can produce perfect text and total silence.
+    """
 
     def __init__(self, device: str | int | None = None, gain: float = 1.0):
         idx = find_device(device, want_input=False) if device is not None else None
         info = sd.query_devices(idx, "output") if idx is not None else sd.query_devices(kind="output")
         self.device = idx
-        self.samplerate = int(info["default_samplerate"])
+        self.samplerate = int(info["default_samplerate"]) or 48000
         self.gain = gain
-        self._q: "queue.Queue[tuple[np.ndarray, object]]" = queue.Queue()
+        self._q: "queue.Queue[np.ndarray]" = queue.Queue()
         self._stream: sd.OutputStream | None = None
-        self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self._pending = np.zeros(0, dtype=np.float32)
+        self._stop = threading.Event()
+        self.frames_written = 0
+        self.last_error: BaseException | None = None
+        self._in_write = False
 
     def open(self) -> "Speaker":
         self._stream = sd.OutputStream(
-            device=self.device, channels=1, samplerate=self.samplerate, dtype="float32",
-            blocksize=0, callback=self._callback,
+            device=self.device, channels=1, samplerate=self.samplerate, dtype="float32", blocksize=0,
         )
         self._stream.start()
-        self._thread = threading.Thread(target=self._worker, name="speaker", daemon=True)
+        self._thread = threading.Thread(target=self._writer, name="speaker", daemon=True)
         self._thread.start()
         return self
 
-    def _callback(self, outdata, frames, time_info, status) -> None:  # noqa: ANN001
-        need = frames
-        while need > 0:
-            if self._pending.size == 0:
-                try:
-                    audio, done = self._q.get_nowait()
-                except queue.Empty:
-                    outdata[:need] = 0
-                    return
-                if audio is not None and audio.size:
-                    self._pending = resample(audio, self.samplerate, TARGET_SR) * self.gain
-                if done is not None:
-                    done.set()
-            take = min(need, self._pending.size)
-            outdata[:take, 0] = self._pending[:take]
-            self._pending = self._pending[take:]
-            need -= take
+    def _writer(self) -> None:
+        while not self._stop.is_set():
+            try:
+                audio = self._q.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            if audio is None:
+                break
+            if audio.size == 0:
+                continue
+            try:
+                assert self._stream is not None
+                self._in_write = True
+                self._stream.write(audio.reshape(-1, 1))
+                self.frames_written += int(audio.size)
+            except Exception as exc:                   # noqa: BLE001 - record it, never die silently
+                self.last_error = exc
+                return
+            finally:
+                self._in_write = False
 
-    def _worker(self) -> None:
-        """Kept for symmetry with future streaming writers; playback happens in the callback."""
-        while not self._stop.wait(0.5):
-            continue
+    def enqueue(self, audio: np.ndarray, sr: int = TARGET_SR) -> None:
+        if sr != self.samplerate:
+            audio = resample(audio, sr, self.samplerate)
+        audio = np.ascontiguousarray(audio, dtype=np.float32) * self.gain
+        self._q.put(audio)
 
-    def enqueue(self, audio: np.ndarray, sr: int = TARGET_SR) -> threading.Event:
-        done = threading.Event()
-        if sr != TARGET_SR:
-            audio = resample(audio, sr, TARGET_SR)
-        self._q.put((np.ascontiguousarray(audio, dtype=np.float32), done))
-        return done
+    def pending_seconds(self) -> float:
+        return sum(item.size for item in list(self._q.queue)) / max(self.samplerate, 1)
 
     def busy(self) -> bool:
-        return not self._q.empty() or self._pending.size > 0
+        return not self._q.empty()
 
-    def flush(self, timeout: float = 30.0) -> None:
+    def interrupt(self) -> None:
+        """Drop anything not yet played (used when the user stops a session)."""
+        while True:
+            try:
+                self._q.get_nowait()
+            except queue.Empty:
+                break
+
+    def flush(self, timeout: float = 60.0) -> None:
+        """Wait until the card has actually taken every sample.
+
+        `write()` blocks while the driver drains, so the queue being empty is not
+        enough: the item in flight still has to finish.
+        """
         deadline = time.time() + timeout
-        while self.busy() and time.time() < deadline:
+        while (not self._q.empty() or self._in_write) and time.time() < deadline:
             time.sleep(0.02)
+        time.sleep(0.05)
 
     def close(self) -> None:
         self._stop.set()
+        self._q.put(np.zeros(0, dtype=np.float32))
+        if self._thread is not None:
+            self._thread.join(timeout=3)
+            self._thread = None
         if self._stream is not None:
             try:
                 self._stream.stop()

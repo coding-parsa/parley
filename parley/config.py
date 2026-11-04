@@ -155,7 +155,7 @@ class Config:
     commit_mode: str = "strict"     # strict = two decodes must agree; eager = first clause wins
 
     # language gate
-    min_lang_prob: float = 0.60
+    min_lang_prob: float = 0.85
     strict_language: bool = True    # refuse spans whose detected language is not the pair
 
     # translation
